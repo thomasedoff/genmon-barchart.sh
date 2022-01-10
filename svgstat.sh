@@ -6,6 +6,7 @@
 # General settings
 disk_mount_point="/home/"
 disk_device="nvme1n1"
+net_device="enp6s0"
 net_tx_mbps_max=50
 net_rx_mbps_max=50
 disk_r_mbps_max=6000
@@ -35,9 +36,9 @@ get_disk_usage() {
 get_net_rxtx() {
   read -r net_date_old net_tx_mb_old net_rx_mb_old < /tmp/svgstat-net.txt
   read -r net_rx_mb net_tx_mb < <(awk '{printf "%f ", $1*8/1000000}' \
-     /sys/class/net/enp6s0/statistics/rx_bytes \
-     /sys/class/net/enp6s0/statistics/tx_bytes)
-  ca
+     /sys/class/net/$net_device/statistics/rx_bytes \
+     /sys/class/net/$net_device/statistics/tx_bytes)
+  
   interval=$((date-net_date_old))
   if [[ $interval -ne 0 && -f /tmp/net.txt ]]; then
     net_rx_mbps=$(awk -v net_rx_mb="$net_rx_mb" -v net_rx_mb_old="$net_rx_mb_old" -v interval="$interval" \
