@@ -20,6 +20,7 @@ declare -a keys=(
 	disk_rw
 	power
 	temp
+#	example
 )
 
 # Max values - If set to auto, the percentages will be based on the highest value recorded.
@@ -141,6 +142,35 @@ get_temp() {
 	tooltip+="gpu_temp: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
 	tooltip+="ssd_temp: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
 
+}
+
+get_example() {
+	# This function is an example on how additional information can be added to the graph.
+	
+	# First, get the raw value of whatever data should be retrieved.
+	# In this example, it's the number of running processes on the system.
+	num_procs=$(ps aux --no-heading | wc -l)
+
+	# Since the bars height is calculated as a percentage, we need to set a maximum.
+	# This could also be set by adding the key "num_procs" to the "values_max" array.
+	num_procs_max=1000
+
+	# To calculate percentages, we can use the get_pcent() function.
+	num_procs_pcent=$(get_pcent "$num_procs" "$num_procs_max")
+
+	# Once we have a percentage, we can append this information to the (indexed) "values_pcent" array.
+	# This will add a new bar to the SVG graph.
+	values_pcent+=("$num_procs_pcent")
+
+	# Then, add the information to the tooltip so that it appears when hovering the graph.
+	tooltip+="\n\nnum_procs $num_procs/$num_procs_max (${num_procs_pcent}%)"
+
+	# That's pretty much it!
+
+	# If you need to compare values over time, data needs to be appended to the
+	# (associative) "values" array so that the data is stored in the values_file.
+	# Have a look at the "get_net_rxtx" or "get_disk_rw" functions, as well as the
+	# "get_rates" function.
 }
 
 data_load() {
