@@ -35,3 +35,4 @@ There is a function called ``example`` that describes this process, and may be u
 ## Ideas/todo
 - Read up on and potentially implement further use of [Pango Text Attributes](https://docs.gtk.org/Pango/pango_markup.html) in the tooltip.
 - Make use of and allow easy customization of GenMons ``<click>`` feature.
+- To not waste use of the pretty rainbow colors, perhaps do not increment colors when value is 0.
