@@ -1,5 +1,5 @@
 # genmon-barchart.sh
-A GenMon script that displays system information in a bar chart on the panel.
+ An XFCE GenMon script that displays customizable system information in a compact bar chart.
 
 ![genmon-barchart](https://user-images.githubusercontent.com/51061686/149675374-45d7606a-7d44-4fc5-aa24-e8ec70bf4e45.gif)
 
