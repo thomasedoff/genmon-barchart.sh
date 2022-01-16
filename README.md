@@ -23,11 +23,11 @@ One way to allow genmon to run the script with Superuser privileges without a pa
 ```
 NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/genmon-barchart.sh
 ```
-## Adding data to the graph
-There is a function called ``example`` that describes this process, and may be used as a template for adding data to the graph. 
+## Adding data to the chart
+There is a function called ``example`` that describes this process, and may be used as a template for adding data to the chart. 
 
 ## Customization
-- Depending on how many bars you include in the graph, you may have to adjust ``svg_width`` to fit all bars without unnecessary margins.
+- Depending on how many bars you include in the chart, you may have to adjust ``svg_width`` to fit all bars without unnecessary margins.
 - If you are unsure of what maximum values to set, set them to ``auto`` and stress your system in order to record some approximate values.
 - Colors can be edited in the CSS ``<style>``-tag within the script.
 - Hint: By inserting hard-coded 0's into the ``values_pcent`` indexed array, it is possible to create gaps between groups of bars.
