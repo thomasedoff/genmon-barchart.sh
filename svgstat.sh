@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# svgstat.sh - Bash script that displays system information in an SVG graph.
+# svgstat.sh - Bash/genmon script that displays system information in an SVG graph.
 # The script can be used with xfce4-genmon-plugin to show a graph onto the panel.
 #
 # https://github.com/thomasedoff/svgstat.sh
@@ -9,9 +9,9 @@
 disk_mount_point="/home/"
 disk_device="nvme1n1"
 net_device="enp6s0"
-history_file="/tmp/svgstat-history.txt"
+values_file="/tmp/svgstat-values"
 
-# Data to include
+# Functions
 declare -a keys=(
 	cpu_load
 	mem_usage
@@ -22,8 +22,7 @@ declare -a keys=(
 	temp
 )
 
-# Max values (for percentages).
-# If set to auto, the percentage will be based on the highest value recorded.
+# Max values - If set to auto, the percentages will be based on the highest value recorded.
 declare -A values_max=(
 	[net_rx_mbps]=50
 	[net_tx_mbps]=50
@@ -31,15 +30,15 @@ declare -A values_max=(
 	[disk_w_mbps]="auto"
 	[cpu_w]="auto"
 	[gpu_w]="auto"
-	[cpu_temp]="auto"
-	[gpu_temp]="auto"
-	[ssd_temp]="auto"
+	[cpu_temp]=100
+	[gpu_temp]=100
+	[ssd_temp]=100
 )
 
 # SVG dimensions
-width=37
-height=30
-margin=1
+svg_width=37
+svg_height=30
+svg_margin=1
 
 get_cpu_load() {
 	values+=([cpu_load]=$(cut -d' ' -f1 < /proc/loadavg))
@@ -66,9 +65,9 @@ get_disk_usage() {
 		awk 'NR==2{gsub("(G|%)", ""); print $1, $2, $3}')
 
 	values+=([disk_usage_gb]="$disk_usage_gb")
-	
+
 	values_pcent+=("$disk_usage_pcent")
-	
+
 	tooltip+="disk_usage: ${values[disk_usage_gb]}/$disk_size_gb GiB (${disk_usage_pcent}%)\n\n"
 }
 
@@ -77,15 +76,15 @@ get_net_rxtx() {
 	read -r net_rx_mb net_tx_mb < <(awk '{printf "%f ", $1*8/10^6}' \
 		 "/sys/class/net/$net_device/statistics/rx_bytes" \
 		 "/sys/class/net/$net_device/statistics/tx_bytes")
-	
+
 	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb" )
 	values+=([net_rx_mbps]=$(get_rate "$net_rx_mb" "${values_old[net_rx_mb]}" "$date" "${values_old[date]}"))
 	values+=([net_tx_mbps]=$(get_rate "$net_tx_mb" "${values_old[net_tx_mb]}" "$date" "${values_old[date]}"))
-	
+
 	net_rx_pcent=$(get_pcent "${values[net_rx_mbps]}" "${values_max[net_rx_mbps]}")
 	net_tx_pcent=$(get_pcent "${values[net_tx_mbps]}" "${values_max[net_tx_mbps]}")
 	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
-	
+
 	tooltip+="net_rx: ${values[net_rx_mbps]}/${values_max[net_rx_mbps]} Mbps (${net_rx_pcent}%)\n"
 	tooltip+="net_tx: ${values[net_tx_mbps]}/${values_max[net_tx_mbps]} Mbps (${net_tx_pcent}%)\n\n"
 }
@@ -93,7 +92,7 @@ get_net_rxtx() {
 get_disk_rw() {
 	read -r disk_r_mb disk_w_mb < <(awk '{printf "%d %d", $3*512/1024/1024, $7*512/1024/1024 }' \
 		"/sys/block/$disk_device/stat")
-	
+
 	values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb" )
 	values+=([disk_r_mbps]=$(get_rate "$disk_r_mb" "${values_old[disk_r_mb]}" "$date" "${values_old[date]}"))
 	values+=([disk_w_mbps]=$(get_rate "$disk_w_mb" "${values_old[disk_w_mb]}" "$date" "${values_old[date]}"))
@@ -101,14 +100,14 @@ get_disk_rw() {
 	disk_r_pcent=$(get_pcent "${values[disk_r_mbps]}" "${values_max[disk_r_mbps]}")
 	disk_w_pcent=$(get_pcent "${values[disk_w_mbps]}" "${values_max[disk_w_mbps]}")
 	values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
-	
+
 	tooltip+="disk_r: ${values[disk_r_mbps]}/${values_max[disk_r_mbps]} MBps (${disk_r_pcent}%)\n"
 	tooltip+="disk_w: ${values[disk_w_mbps]}/${values_max[disk_w_mbps]} MBps (${disk_w_pcent}%)\n\n"
 
 }
 
 get_power() {
-	# Tested only on AMD Ryzen! Superuser privileges and an external tool are required to read these values.
+	# Superuser privileges are required to read these values.
 	# https://github.com/djselbeck/rapl-read-ryzen
 	if [[ "$EUID" -eq 0 ]]; then
 		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
@@ -130,14 +129,14 @@ get_temp() {
 		"/sys/class/hwmon/hwmon3/temp1_input" \
 		"/sys/class/hwmon/hwmon2/temp2_input" \
 		"/sys/class/hwmon/hwmon0/temp1_input")
-	
+
 	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
-	
+
 	cpu_temp_pcent=$(get_pcent "${values[cpu_temp]}" "${values_max[cpu_temp]}")
 	gpu_temp_pcent=$(get_pcent "${values[gpu_temp]}" "${values_max[gpu_temp]}")
 	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]}" "${values_max[ssd_temp]}")
 	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
-		
+
 	tooltip+="cpu_temp: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
 	tooltip+="gpu_temp: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
 	tooltip+="ssd_temp: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
@@ -145,13 +144,13 @@ get_temp() {
 }
 
 data_load() {
-	source /tmp/svgstat-values.txt || declare -Ag values_old
+	source "$values_file" || declare -Ag values_old
 
 	for i in "${!values_max[@]}"; do
 		if [[ "${values_max[$i]}" == "auto" ]]; then
 			values_max[$i]=${values_old[$i]}
 		fi
-		
+
 		if [[ -z "${values_old[$i]}" ]]; then
 			values_max[$i]=0
 		fi
@@ -167,7 +166,7 @@ data_save() {
 
 	values+=([date]="${date}")
 
-	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > /tmp/svgstat-values.txt
+	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > "$values_file"
 }
 
 get_pcent() {
@@ -182,17 +181,17 @@ get_rate() {
 
 write_history() {
 	values_joined=$(printf ",%s" "${values[@]}")
-	echo "${date::-3}${values_joined}" >> "$history_file"
+	echo "${date::-3}${values_joined}" >> "/tmp/svgstat-history.txt"
 }
 
 draw_elements() {
-	local width=$(((width-margin)/${#values_pcent[@]}-margin))
+	local svg_width=$(((svg_width-svg_margin)/${#values_pcent[@]}-svg_margin))
 
 	for ((i=0; i<${#values_pcent[@]}; i++)); do
-		local x=$(((width+margin)*i))
-		local height=$((((${values_pcent[$i]%.*}+5)/10)*10))
+		local x=$(((svg_width+svg_margin)*i))
+		local svg_height=$((((${values_pcent[$i]%.*}+5)/10)*10))
 		
-		bars+="<rect class='bar--$i' width='$width' height='${height}%' x='$x' y='0' />"
+		bars+="<rect class='bar--$i' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
 	done
 	
 	for i in {0..100..10}; do
@@ -203,10 +202,10 @@ draw_elements() {
 create_svg() {
 	draw_elements
 
-	cat <<- EOF > /tmp/svgstat-graph.svg
+	cat <<- SVG > /tmp/svgstat-graph.svg
 	<svg version="1.1"
-		width="$width"
-		height="$height"
+		width="$svg_width"
+		height="$svg_height"
 		xmlns="http://www.w3.org/2000/svg">
 
 		<style>
@@ -225,20 +224,21 @@ create_svg() {
 			.bar--11 { fill: #D68910; }
 			.bar--12 { fill: #CA6F1E; }
 			.bar--13 { fill: #BA4A00; }
-			.line { stroke: #000; stroke-width: $margin }
+			.line { stroke: #000; stroke-width: $svg_margin }
 		</style>
 	
-		<rect class="container" width="$width" height="$height" />
-		<svg width="$((width-margin*2))" height="$((height-margin*2))"
-			x="$margin" y="$margin" transform="scale(1,-1) translate(0,-$height)">
+		<rect class="container" width="$svg_width" height="$svg_height" />
+		<svg width="$((svg_width-svg_margin*2))" height="$((svg_height-svg_margin*2))"
+			x="$svg_margin" y="$svg_margin" transform="scale(1,-1) translate(0,-$svg_height)">
 			<g>$bars</g>
 			<g>$lines</g>
 		</svg>
 	</svg>
-	EOF
+	SVG
 }
 
 date=$(date '+%s%3N')
+
 declare -A values=()
 declare -a values_pcent=()
 
