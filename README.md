@@ -1,7 +1,7 @@
 # genmon-barchart.sh
 A GenMon script that displays system information in a bar chart on the panel.
 
-![genmon-barchart.sh](https://user-images.githubusercontent.com/51061686/149658632-d16ad1f7-5ccd-4a5d-b1f5-6f68d641d4db.gif)
+![genmon-barchart](https://user-images.githubusercontent.com/51061686/149675374-45d7606a-7d44-4fc5-aa24-e8ec70bf4e45.gif)
 
 ## Description
 genmon-barchart.sh is a script that gathers system information and creates an SVG bar chart to be be displayed on an XFCE panel by [xfce4-genmon-plugin](https://gitlab.xfce.org/panel-plugins/xfce4-genmon-plugin) (GenMon).
