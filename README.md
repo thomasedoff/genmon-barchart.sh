@@ -23,6 +23,8 @@ One way to allow genmon to run the script with Superuser privileges without a pa
 ```
 NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/svgstat.sh
 ```
+## Adding data to the graph
+There is a function called ``example`` that describes this process, and may be used as a template for adding data to the graph. 
 
 ## Customization
 - Depending on how many bars you include in the graph, you may have to adjust ``svg_width`` to fit all bars without unnecessary margins.
