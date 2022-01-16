@@ -17,7 +17,7 @@ By hovering the bars, additional information will be displayed.
 4. Certain functions (currently ``get_power``) require Superuser privileges to retrieve the values. See below.
 
 ## Considerations
-Most functions should be portable, but ``get_power`` and ``get_temp`` are system-specific. Please consider these functions **examples** rather than something that will work for you of the box.
+Most functions should be portable, but ``get_power`` and ``get_temp`` are system-specific. Please consider these functions **examples** rather than something that will work for you out of the box.
 
 One way to allow genmon to run the script with Superuser privileges without a password is to configure ``/etc/sudoers`` as such:
 ```
