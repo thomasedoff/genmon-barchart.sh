@@ -20,7 +20,7 @@ declare -a keys=(
 	disk_rw
 	power
 	temp
-#	example
+	#example
 )
 
 # Max values - If set to auto, the percentages will be based on the highest value recorded.
@@ -34,6 +34,7 @@ declare -A values_max=(
 	[cpu_temp]=100
 	[gpu_temp]=100
 	[ssd_temp]=100
+	#[example]=1000
 )
 
 # SVG dimensions
@@ -149,28 +150,28 @@ get_example() {
 	
 	# First, get the raw value of whatever data should be retrieved.
 	# In this example, it's the number of running processes on the system.
-	num_procs=$(ps aux --no-heading | wc -l)
+	# Normally, all instances of "example" would be "num_procs".
+	example=$(ps aux --no-heading | wc -l)
 
 	# Since the bars height is calculated as a percentage, we need to set a maximum.
-	# This could also be set by adding the key "num_procs" to the "values_max" array.
-	num_procs_max=1000
+	# Preferably, this is set by adding the key "num_procs" and value to the "values_max" array.
 
 	# To calculate percentages, we can use the get_pcent() function.
-	num_procs_pcent=$(get_pcent "$num_procs" "$num_procs_max")
+	example_pcent=$(get_pcent "$example" "${values_max[example]}")
 
 	# Once we have a percentage, we can append this information to the (indexed) "values_pcent" array.
-	# This will add a new bar to the SVG graph.
-	values_pcent+=("$num_procs_pcent")
+	# This will add a new bar to the SVG graph. Optionally, we can prepend a hard-coded "0" to create
+	# a gap before the previous bars.
+	example_pcent+=(0 "$example_pcent")
 
-	# Then, add the information to the tooltip so that it appears when hovering the graph.
-	tooltip+="\n\nnum_procs $num_procs/$num_procs_max (${num_procs_pcent}%)"
+	# In order to save the maximum value seen and use "auto" setting, the raw value must be appended
+	# To the (associative) "values" array.
+	values+=([example]="$example")
 
-	# That's pretty much it!
+	# Finally, add the information to the tooltip so that it appears when hovering the graph.
+	tooltip+="\n\nexample $example/${values_max[example]} (${example_pcent}%)"
 
-	# If you need to compare values over time, data needs to be appended to the
-	# (associative) "values" array so that the data is stored in the values_file.
-	# Have a look at the "get_net_rxtx" or "get_disk_rw" functions, as well as the
-	# "get_rates" function.
+	# That's it!
 }
 
 data_load() {
@@ -221,7 +222,7 @@ draw_elements() {
 		local x=$(((svg_width+svg_margin)*i))
 		local svg_height=$((((${values_pcent[$i]%.*}+5)/10)*10))
 		
-		bars+="<rect class='bar--$i' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
+		bars+="<rect class='bar bar--$i' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
 	done
 	
 	for i in {0..100..10}; do
@@ -240,6 +241,7 @@ create_svg() {
 
 		<style>
 			.container { fill: #000; }
+			.bar { fill: #FFF; }
 			.bar--0 { fill: #A93226; }
 			.bar--1 { fill: #CB4335; }
 			.bar--2 { fill: #884EA0; }
