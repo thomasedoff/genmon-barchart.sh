@@ -1,12 +1,12 @@
-# svgstat.sh
-Bash/genmon script that displays system information in an SVG graph.
+# genmon-barchart.sh
+A GenMon script that displays system information in a bar chart on the panel.
 
-![svgstat sh](https://user-images.githubusercontent.com/51061686/149658632-d16ad1f7-5ccd-4a5d-b1f5-6f68d641d4db.gif)
+![genmon-barchart.sh](https://user-images.githubusercontent.com/51061686/149658632-d16ad1f7-5ccd-4a5d-b1f5-6f68d641d4db.gif)
 
 ## Description
-svgstat.sh is a simple script that gathers system information and generates an SVG graph to be be displayed on an XFCE panel by [xfce4-genmon-plugin](https://gitlab.xfce.org/panel-plugins/xfce4-genmon-plugin) aka genmon.
+genmon-barchart.sh is a script that gathers system information and creates an SVG bar chart to be be displayed on an XFCE panel by [xfce4-genmon-plugin](https://gitlab.xfce.org/panel-plugins/xfce4-genmon-plugin) (GenMon).
 
-The script can be an alternative/addition to [Sensors](https://docs.xfce.org/panel-plugins/xfce4-sensors-plugin/start) or [Task Manager](https://docs.xfce.org/apps/xfce4-taskmanager/start), but the primary idea is to provide an at-a-glance overview of system activity.
+The script can be an alternative/addition to [CPUGraph](https://docs.xfce.org/panel-plugins/xfce4-cpugraph-plugin/start), [Sensors](https://docs.xfce.org/panel-plugins/xfce4-sensors-plugin/start), [DiskPerf](https://docs.xfce.org/panel-plugins/xfce4-diskperf-plugin/start), etc. But primary idea is to provide a compact overview of system activity.
 
 By hovering the bars, additional information will be displayed.
 
@@ -21,7 +21,7 @@ Most functions should be portable, but ``get_power`` and ``get_temp`` are system
 
 One way to allow genmon to run the script with Superuser privileges without a password is to configure ``/etc/sudoers`` as such:
 ```
-NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/svgstat.sh
+NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/genmon-barchart.sh
 ```
 ## Adding data to the graph
 There is a function called ``example`` that describes this process, and may be used as a template for adding data to the graph. 
@@ -31,3 +31,7 @@ There is a function called ``example`` that describes this process, and may be u
 - If you are unsure of what maximum values to set, set them to ``auto`` and stress your system in order to record some approximate values.
 - Colors can be edited in the CSS ``<style>``-tag within the script.
 - Hint: By inserting hard-coded 0's into the ``values_pcent`` indexed array, it is possible to create gaps between groups of bars.
+
+## Ideas/todo
+- Read up on and potentially implement further use of [Pango Text Attributes](https://docs.gtk.org/Pango/pango_markup.html) in the tooltip.
+- Make use of and allow easy customization of GenMons ``<click>`` feature.
