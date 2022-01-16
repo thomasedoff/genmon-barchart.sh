@@ -22,163 +22,172 @@ declare -a keys=(
 	temp
 )
 
-# Max values (for percentages)
+# Max values (for percentages).
+# If set to auto, the percentage will be based on the highest value recorded.
 declare -A values_max=(
-	[net_tx_mbps]=50
 	[net_rx_mbps]=50
+	[net_tx_mbps]=50
 	[disk_r_mbps]="auto"
 	[disk_w_mbps]="auto"
 	[cpu_w]="auto"
 	[gpu_w]="auto"
+	[cpu_temp]="auto"
+	[gpu_temp]="auto"
+	[ssd_temp]="auto"
 )
 
 # SVG dimensions
 width=37
 height=30
 margin=1
- 
+
 get_cpu_load() {
-	cpu_load=$(cut -d' ' -f1 < /proc/loadavg)
-	cpu_cores=$(grep -c ^processor /proc/cpuinfo)
-	cpu_load_pcent=$(get_pcent "$cpu_load" "$cpu_cores")
-		
+	values+=([cpu_load]=$(cut -d' ' -f1 < /proc/loadavg))
+
+	cpu_load_pcent=$(get_pcent "${values[cpu_load]}" "$(grep -c ^processor /proc/cpuinfo)")
 	values_pcent+=("$cpu_load_pcent")
-	tooltip+="cpu_load: $cpu_load ($cpu_load_pcent%)\n"
+
+	tooltip+="cpu_load: ${values[cpu_load]} (${cpu_load_pcent}%)\n"
 }
 
 get_mem_usage() {
 	read -r mem_total_gb mem_usage_gb mem_usage_pcent < <(free --mega -t | \
 		awk 'NR==2{printf "%.1f %.1f %d", $2/1024, $3/1024, $3/$2*100}')
-		
+
+	values+=([mem_usage_gb]="$mem_usage_gb")
+
 	values_pcent+=("$mem_usage_pcent")
-	tooltip+="mem_usage: $mem_usage_gb/$mem_total_gb GiB ($mem_usage_pcent%)\n"
+
+	tooltip+="mem_usage: ${values[mem_usage_gb]}/$mem_total_gb GiB (${mem_usage_pcent}%)\n"
 }
 
 get_disk_usage() {
-	read -r disk_size disk_usage disk_usage_pcent < <(df -BG --output=size,used,pcent "$disk_mount_point" | \
+	read -r disk_size_gb disk_usage_gb disk_usage_pcent < <(df -BG --output=size,used,pcent "$disk_mount_point" | \
 		awk 'NR==2{gsub("(G|%)", ""); print $1, $2, $3}')
-		
+
+	values+=([disk_usage_gb]="$disk_usage_gb")
+	
 	values_pcent+=("$disk_usage_pcent")
-	tooltip+="disk_usage: $disk_usage/$disk_size GiB ($disk_usage_pcent%)\n\n"
+	
+	tooltip+="disk_usage: ${values[disk_usage_gb]}/$disk_size_gb GiB (${disk_usage_pcent}%)\n\n"
 }
 
-get_net_rxtx() {
-	read -r net_date_old net_tx_mb_old net_rx_mb_old < /tmp/svgstat-net.txt
-	read -r net_rx_mb net_tx_mb < <(awk '{printf "%f ", $1*8/10^6}' \
-		 /sys/class/net/$net_device/statistics/rx_bytes \
-		 /sys/class/net/$net_device/statistics/tx_bytes)
-	
-	interval=$((date-net_date_old))
-	net_rx_mbps=$(get_rate "$net_rx_mb" "$net_rx_mb_old" "$interval")
-	net_tx_mbps=$(get_rate "$net_tx_mb" "$net_tx_mb_old" "$interval")
-	net_rx_pcent=$(get_pcent "$net_rx_mbps" "${values_max[net_rx_mbps]}")
-	net_tx_pcent=$(get_pcent "$net_tx_mbps" "${values_max[net_tx_mbps]}")
-	
-	values+=([net_rx_mbps]="$net_rx_mbps" [net_tx_mbps]="$net_tx_mbps")
-	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
-	tooltip+="net_rx: $net_rx_mbps/${values_max[net_rx_mbps]} Mbps ($net_rx_pcent%)\n"
-	tooltip+="net_tx: $net_tx_mbps/${values_max[net_tx_mbps]} Mbps ($net_tx_pcent%)\n\n"
 
-	echo "$date $net_tx_mb $net_rx_mb" > /tmp/svgstat-net.txt
+get_net_rxtx() {
+	read -r net_rx_mb net_tx_mb < <(awk '{printf "%f ", $1*8/10^6}' \
+		 "/sys/class/net/$net_device/statistics/rx_bytes" \
+		 "/sys/class/net/$net_device/statistics/tx_bytes")
+	
+	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb" )
+	values+=([net_rx_mbps]=$(get_rate "$net_rx_mb" "${values_old[net_rx_mb]}" "$date" "${values_old[date]}"))
+	values+=([net_tx_mbps]=$(get_rate "$net_tx_mb" "${values_old[net_tx_mb]}" "$date" "${values_old[date]}"))
+	
+	net_rx_pcent=$(get_pcent "${values[net_rx_mbps]}" "${values_max[net_rx_mbps]}")
+	net_tx_pcent=$(get_pcent "${values[net_tx_mbps]}" "${values_max[net_tx_mbps]}")
+	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
+	
+	tooltip+="net_rx: ${values[net_rx_mbps]}/${values_max[net_rx_mbps]} Mbps (${net_rx_pcent}%)\n"
+	tooltip+="net_tx: ${values[net_tx_mbps]}/${values_max[net_tx_mbps]} Mbps (${net_tx_pcent}%)\n\n"
 }
 
 get_disk_rw() {
-	read -r disk_date_old disk_r_mb_old disk_w_mb_old < /tmp/svgstat-disk.txt
 	read -r disk_r_mb disk_w_mb < <(awk '{printf "%d %d", $3*512/1024/1024, $7*512/1024/1024 }' \
-		/sys/block/$disk_device/stat)
+		"/sys/block/$disk_device/stat")
 	
-	interval=$((date-disk_date_old))
-	disk_r_mbps=$(get_rate "$disk_r_mb" "$disk_r_mb_old" "$interval")
-	disk_w_mbps=$(get_rate "$disk_w_mb" "$disk_w_mb_old" "$interval")
-	disk_r_pcent=$(get_pcent "$disk_r_mbps" "${values_max[disk_r_mbps]}")
-	disk_w_pcent=$(get_pcent "$disk_w_mbps" "${values_max[disk_w_mbps]}")
-	
-	values+=([disk_r_mbps]="$disk_r_mbps" [disk_w_mbps]="$disk_w_mbps")
-	values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
-	tooltip+="disk_r: $disk_r_mbps/${values_max[disk_r_mbps]} MBps ($disk_r_pcent%)\n"
-	tooltip+="disk_w: $disk_w_mbps/${values_max[disk_w_mbps]} MBps ($disk_w_pcent%)\n\n"
+	values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb" )
+	values+=([disk_r_mbps]=$(get_rate "$disk_r_mb" "${values_old[disk_r_mb]}" "$date" "${values_old[date]}"))
+	values+=([disk_w_mbps]=$(get_rate "$disk_w_mb" "${values_old[disk_w_mb]}" "$date" "${values_old[date]}"))
 
-	echo "$date $disk_r_mb $disk_w_mb" > /tmp/svgstat-disk.txt
+	disk_r_pcent=$(get_pcent "${values[disk_r_mbps]}" "${values_max[disk_r_mbps]}")
+	disk_w_pcent=$(get_pcent "${values[disk_w_mbps]}" "${values_max[disk_w_mbps]}")
+	values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
+	
+	tooltip+="disk_r: ${values[disk_r_mbps]}/${values_max[disk_r_mbps]} MBps (${disk_r_pcent}%)\n"
+	tooltip+="disk_w: ${values[disk_w_mbps]}/${values_max[disk_w_mbps]} MBps (${disk_w_pcent}%)\n\n"
+
 }
 
 get_power() {
-	# Tested only on AMD Ryzen! Root privileges and an external tool are required to read these values.
+	# Tested only on AMD Ryzen! Superuser privileges and an external tool are required to read these values.
 	# https://github.com/djselbeck/rapl-read-ryzen
 	if [[ "$EUID" -eq 0 ]]; then
-		cpu_w=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%d", $3}')
-		gpu_w=$(awk '/(average GPU)/{printf "%d", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info)
-		cpu_w_pcent=$(get_pcent "$cpu_w" "${values_max[cpu_w]}")
-		gpu_w_pcent=$(get_pcent "$gpu_w" "${values_max[gpu_w]}")
+		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
+		values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
+
+		cpu_w_pcent=$(get_pcent "${values[cpu_w]}" "${values_old[cpu_w]}")
+		gpu_w_pcent=$(get_pcent "${values[gpu_w]}" "${values_old[gpu_w]}")
+		values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
+		
+		tooltip+="cpu_power: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
+		tooltip+="gpu_power: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
 	fi
 	
-	values+=([cpu_w]="$cpu_w" [gpu_w]="$gpu_w")
-	values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
-	tooltip+="cpu_power: $cpu_w/${values_max[cpu_w]} W ($cpu_w_pcent%)\n"
-	tooltip+="gpu_power: $gpu_w/${values_max[gpu_w]} W ($gpu_w_pcent%)\n\n"
 }
 
 get_temp() {
 	# Order may not be reliable
 	read -r cpu_temp gpu_temp ssd_temp < <(awk '{printf "%.1f ", $1/1000}' \
-		/sys/class/hwmon/hwmon3/temp1_input \
-		/sys/class/hwmon/hwmon2/temp2_input \
-		/sys/class/hwmon/hwmon0/temp1_input)
+		"/sys/class/hwmon/hwmon3/temp1_input" \
+		"/sys/class/hwmon/hwmon2/temp2_input" \
+		"/sys/class/hwmon/hwmon0/temp1_input")
 	
-	values_pcent+=("$cpu_temp" "$gpu_temp" "$ssd_temp")
-	tooltip+="cpu_temp: $cpu_temp C\n"
-	tooltip+="gpu_temp: $gpu_temp C\n"
-	tooltip+="ssd_temp: $ssd_temp C"
+	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
+	
+	cpu_temp_pcent=$(get_pcent "${values[cpu_temp]}" "${values_max[cpu_temp]}")
+	gpu_temp_pcent=$(get_pcent "${values[gpu_temp]}" "${values_max[gpu_temp]}")
+	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]}" "${values_max[ssd_temp]}")
+	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
+		
+	tooltip+="cpu_temp: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
+	tooltip+="gpu_temp: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
+	tooltip+="ssd_temp: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
+
 }
 
-get_values_max() {
-	source /tmp/svgstat-max.txt || declare -Ag values_max_old
+data_load() {
+	source /tmp/svgstat-values.txt || declare -Ag values_old
 
 	for i in "${!values_max[@]}"; do
 		if [[ "${values_max[$i]}" == "auto" ]]; then
-			values_max[$i]=${values_max_old[$i]}
+			values_max[$i]=${values_old[$i]}
 		fi
 		
-		if [[ -z "${values_max[$i]}" ]]; then
+		if [[ -z "${values_old[$i]}" ]]; then
 			values_max[$i]=0
 		fi
 	done
 }
 
-set_values_max() {
+data_save() {
 	for i in "${!values[@]}"; do
-		if [[ "${values[$i]}" -ge "${values_max[$i]}" ]]; then
-			values_max_old[$i]="${values[$i]}"
+		if [[ "${values[$i]%%.*}" -lt "${values_max[$i]%%.*}" ]]; then
+			values[$i]="${values_max[$i]}"
 		fi
 	done
 
-	declare -Ap values_max_old | sed 's/ -A/&g/' > /tmp/svgstat-max.txt
+	values+=([date]="${date}")
+
+	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > /tmp/svgstat-values.txt
 }
 
 get_pcent() {
-	if [[ "$2" -le 0 ]]; then
-		echo "0"
-	else
-		awk -v value="$1" -v total="$2" 'BEGIN {printf "%d", value/total*100}'
-	fi
-	
-	exit
+	awk -v value="$1" -v total="$2" 'BEGIN {
+		if (value>0 && total>0) {printf "%d", value/total*100} else {print 0}}'
 }
 
 get_rate() {
-	if [[ "$3" -le 0 ]]; then
-		echo "0"
-	else
-		awk -v new="$1" -v old="$2" -v interval="$3" 'BEGIN {printf "%d", (new-old)/interval}'
-	fi
+	awk -v new="$1" -v old="$2" -v date="$3" -v date_old="$4" 'BEGIN {
+		if (date>date_old) {printf "%.1f", (new-old)/((date-date_old)/1000)} else {print 0}}'
 }
 
 write_history() {
 	values_joined=$(printf ",%s" "${values[@]}")
-	echo "${date}${values_joined}" >> "$history_file"
+	echo "${date::-3}${values_joined}" >> "$history_file"
 }
 
 draw_elements() {
 	local width=$(((width-margin)/${#values_pcent[@]}-margin))
+
 	for ((i=0; i<${#values_pcent[@]}; i++)); do
 		local x=$(((width+margin)*i))
 		local height=$((((${values_pcent[$i]%.*}+5)/10)*10))
@@ -229,15 +238,16 @@ create_svg() {
 	EOF
 }
 
-date=$(date +%s)
+date=$(date '+%s%3N')
 declare -A values=()
+declare -a values_pcent=()
 
-get_values_max
-for i in "${keys[@]}"; do
-	"get_${i}";
-done
-set_values_max
+data_load
+for i in "${keys[@]}"; do "get_${i}"; done
+data_save
 create_svg
 #write_history
 
 echo -e "<img>/tmp/svgstat-graph.svg</img><tool>${tooltip}</tool>"
+
+exit 0
