@@ -27,5 +27,5 @@ NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/svgstat.sh
 ## Customization
 - Depending on how many bars you include in the graph, you may have to adjust ``svg_width`` to fit all bars without unnecessary margins.
 - If you are unsure of what maximum values to set, set them to ``auto`` and stress your system in order to record some approximate values.
-- Colors can be edited in the CSS ``<style``-tag within the script.
+- Colors can be edited in the CSS ``<style>``-tag within the script.
 - Hint: By inserting hard-coded 0's into the ``values_pcent`` indexed array, it is possible to create gaps between groups of bars.
