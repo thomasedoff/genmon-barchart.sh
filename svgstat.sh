@@ -147,10 +147,10 @@ get_temp() {
 
 get_example() {
 	# This function is an example on how additional information can be added to the graph.
-	
-	# First, get the raw value of whatever data should be retrieved.
 	# In this example, it's the number of running processes on the system.
 	# Normally, all instances of "example" would be "num_procs".
+
+	# First, get the raw value of whatever data should be retrieved.
 	example=$(ps aux --no-heading | wc -l)
 
 	# Since the bars height is calculated as a percentage, we need to set a maximum.
