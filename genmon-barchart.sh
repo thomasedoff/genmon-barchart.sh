@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# svgstat.sh - Bash/genmon script that displays system information in an SVG graph.
-# The script can be used with xfce4-genmon-plugin to show a graph onto the panel.
+# genmon-barchart.sh - A GenMon script that displays system information.
+# The script can be used with xfce4-genmon-plugin to show a bar chart on the panel.
 #
-# https://github.com/thomasedoff/svgstat.sh
+# https://github.com/thomasedoff/genmon-barchart.sh
 
 # General settings
 disk_mount_point="/home/"
 disk_device="nvme1n1"
 net_device="enp6s0"
-values_file="/tmp/svgstat-values"
+values_file="/tmp/genmon-barchart-values.txt"
 
 # Functions
 declare -a keys=(
@@ -168,9 +168,11 @@ get_example() {
 	# To the (associative) "values" array.
 	values+=([example]="$example")
 
-	# Finally, add the information to the tooltip so that it appears when hovering the graph.
+	# Then, add the information to the tooltip so that it appears when hovering the graph.
 	tooltip+="\n\nexample $example/${values_max[example]} (${example_pcent}%)"
 
+	# Finally, make sure the function exists (and is not commented) in the "keys" array.
+	
 	# That's it!
 }
 
@@ -212,7 +214,7 @@ get_rate() {
 
 write_history() {
 	values_joined=$(printf ",%s" "${values[@]}")
-	echo "${date::-3}${values_joined}" >> "/tmp/svgstat-history.txt"
+	echo "${date::-3}${values_joined}" >> "/tmp/genmon-barchart-history.txt"
 }
 
 draw_elements() {
@@ -233,7 +235,7 @@ draw_elements() {
 create_svg() {
 	draw_elements
 
-	cat <<- SVG > /tmp/svgstat-graph.svg
+	cat <<- SVG > /tmp/genmon-barchart.svg
 	<svg version="1.1"
 		width="$svg_width"
 		height="$svg_height"
@@ -280,6 +282,6 @@ data_save
 create_svg
 #write_history
 
-echo -e "<img>/tmp/svgstat-graph.svg</img><tool>${tooltip}</tool>"
+echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>${tooltip}</tt></tool>"
 
 exit 0
