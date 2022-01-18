@@ -13,7 +13,7 @@ values_file="/tmp/genmon-barchart-values.txt"
 
 # Functions
 declare -a bars=(
-	num_warn
+	#num_warn
 	num_users
 	num_procs
 	cpu_load
@@ -31,9 +31,9 @@ declare -A values_max=(
 	[num_warn]="auto"
 	[num_users]="auto"
 	[num_procs]="auto"
-	[cpu_freq]=3400
-	[net_rx_mbit_s]=50
-	[net_tx_mbit_s]=50
+	[cpu_freq]="auto"
+	[net_rx_mbit_s]="auto"
+	[net_tx_mbit_s]="auto"
 	[net_skt_tcp]="auto"
 	[net_skt_udp]="auto"
 	[disk_r_mbyte_s]="auto"
