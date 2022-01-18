@@ -12,43 +12,125 @@ net_device="enp6s0"
 values_file="/tmp/genmon-barchart-values.txt"
 
 # Functions
-declare -a keys=(
+declare -a bars=(
+	num_warn
+	num_users
+	num_procs
 	cpu_load
 	mem_usage
 	disk_usage
 	net_rxtx
+	net_skt
 	disk_rw
-	power
-	temp
-	#example
+	#power
+	#temp
 )
 
 # Max values - If set to auto, the percentages will be based on the highest value recorded.
 declare -A values_max=(
-	[net_rx_mbps]=50
-	[net_tx_mbps]=50
-	[disk_r_mbps]="auto"
-	[disk_w_mbps]="auto"
+	[num_warn]="auto"
+	[num_users]="auto"
+	[num_procs]="auto"
+	[cpu_freq]=3400
+	[net_rx_mbit_s]=50
+	[net_tx_mbit_s]=50
+	[net_skt_tcp]="auto"
+	[net_skt_udp]="auto"
+	[disk_r_mbyte_s]="auto"
+	[disk_w_mbyte_s]="auto"
 	[cpu_w]="auto"
 	[gpu_w]="auto"
 	[cpu_temp]=100
 	[gpu_temp]=100
 	[ssd_temp]=100
-	#[example]=1000
 )
 
 # SVG dimensions
-svg_width=37
+svg_width=40
 svg_height=30
 svg_margin=1
 
+main() {
+	date=$(date '+%s%3N')
+
+	declare -A values=()
+	declare -a values_pcent=()
+
+	if [[ -n "$1" && -f "$1" ]]; then
+		source "$1"
+	fi
+
+	data_load
+
+	for i in "${bars[@]}"; do
+		"get_${i}"
+	done
+
+	data_save
+	create_svg
+	#write_history
+
+	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>${tooltip}</tt></tool>"
+}
+
+get_num_warn() {
+	# In this function, the process of adding data is described.
+
+	# In this case, we need to check whether the script is run with Superuser privileges.
+	if [[ "$EUID" -eq 0 ]]; then
+
+		# 1: Retrieve the raw value of whatever data we will be adding.
+		num_warn=$(journalctl --priority=warning --since -5min | wc -l)
+	
+		# 2: Push the raw value into the "values" array.
+		values+=([num_warn]="$num_warn")
+
+		# 3: Ensure that a maximum value exists in the "max_values" array declared above.
+
+		# 4: Get the raw values percentage of the maximum value.
+		num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
+
+		# 5: Push the percetage into the "values_pcent" array.
+		values_pcent+=("$num_warn_pcent")
+	
+		# 6: Finally, append everything to the tooltip.
+		tooltip+="<b>   num_warn</b>: ${values[num_warn]}/${values_max[num_warn]} (${num_warn_pcent}%)\n\n"
+	else
+		tooltip+="<b>   num_warn</b>: N/A\n\n"
+	fi
+}
+
+get_num_users() {
+	values+=([num_users]=$(who | wc -l))
+
+	num_users_pcent=$(get_pcent "${values[num_users]}" "${values_max[num_users]}")
+	values_pcent+=("$num_users_pcent")
+
+	tooltip+="<b>  num_users</b>: ${values[num_users]}/${values_max[num_users]} (${num_users_pcent}%)\n"
+}
+
+get_num_procs() {
+	values+=([num_procs]=$(ls -d /proc/[1-9]* | wc -l))
+
+	num_procs_pcent=$(get_pcent "${values[num_procs]}" "${values_max[num_procs]}")
+	values_pcent+=("$num_procs_pcent")
+
+	tooltip+="<b>  num_procs</b>: ${values[num_procs]}/${values_max[num_procs]} (${num_procs_pcent}%)\n\n"
+}
+
 get_cpu_load() {
+	read -r cpu_cores cpu_freq < <(awk '/^cpu MHz/{count++; freq+=$4} END {printf "%d %d", count, freq/count}' \
+		/proc/cpuinfo)
+
+	values+=([cpu_freq]="$cpu_freq")
 	values+=([cpu_load]=$(cut -d' ' -f1 < /proc/loadavg))
 
-	cpu_load_pcent=$(get_pcent "${values[cpu_load]}" "$(grep -c ^processor /proc/cpuinfo)")
-	values_pcent+=("$cpu_load_pcent")
+	cpu_freq_pcent=$(get_pcent "${values[cpu_freq]}" "${values_max[cpu_freq]}")
+	cpu_load_pcent=$(get_pcent "${values[cpu_load]}" "$cpu_cores")
+	values_pcent+=("$cpu_freq_pcent" "$cpu_load_pcent")
 
-	tooltip+="cpu_load: ${values[cpu_load]} (${cpu_load_pcent}%)\n"
+	tooltip+="<b>   cpu_freq</b>: ${values[cpu_freq]}/${values_max[cpu_freq]} MHz (${cpu_freq_pcent}%)\n"
+	tooltip+="<b>   cpu_load</b>: ${values[cpu_load]}/$cpu_cores (${cpu_load_pcent}%)\n\n"
 }
 
 get_mem_usage() {
@@ -59,7 +141,7 @@ get_mem_usage() {
 
 	values_pcent+=("$mem_usage_pcent")
 
-	tooltip+="mem_usage: ${values[mem_usage_gb]}/$mem_total_gb GiB (${mem_usage_pcent}%)\n"
+	tooltip+="<b>  mem_usage</b>: ${values[mem_usage_gb]}/$mem_total_gb GiB (${mem_usage_pcent}%)\n\n"
 }
 
 get_disk_usage() {
@@ -70,7 +152,7 @@ get_disk_usage() {
 
 	values_pcent+=("$disk_usage_pcent")
 
-	tooltip+="disk_usage: ${values[disk_usage_gb]}/$disk_size_gb GiB (${disk_usage_pcent}%)\n\n"
+	tooltip+="<b> disk_usage</b>: ${values[disk_usage_gb]}/$disk_size_gb GiB (${disk_usage_pcent}%)\n\n"
 }
 
 
@@ -80,15 +162,33 @@ get_net_rxtx() {
 		 "/sys/class/net/$net_device/statistics/tx_bytes")
 
 	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb" )
-	values+=([net_rx_mbps]=$(get_rate "$net_rx_mb" "${values_old[net_rx_mb]}" "$date" "${values_old[date]}"))
-	values+=([net_tx_mbps]=$(get_rate "$net_tx_mb" "${values_old[net_tx_mb]}" "$date" "${values_old[date]}"))
+	values+=([net_rx_mbit_s]=$(get_rate "$net_rx_mb" "${values_old[net_rx_mb]}" "$date" "${values_old[date]}"))
+	values+=([net_tx_mbit_s]=$(get_rate "$net_tx_mb" "${values_old[net_tx_mb]}" "$date" "${values_old[date]}"))
 
-	net_rx_pcent=$(get_pcent "${values[net_rx_mbps]}" "${values_max[net_rx_mbps]}")
-	net_tx_pcent=$(get_pcent "${values[net_tx_mbps]}" "${values_max[net_tx_mbps]}")
+	net_rx_pcent=$(get_pcent "${values[net_rx_mbit_s]}" "${values_max[net_rx_mbit_s]}")
+	net_tx_pcent=$(get_pcent "${values[net_tx_mbit_s]}" "${values_max[net_tx_mbit_s]}")
 	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
 
-	tooltip+="net_rx: ${values[net_rx_mbps]}/${values_max[net_rx_mbps]} Mbps (${net_rx_pcent}%)\n"
-	tooltip+="net_tx: ${values[net_tx_mbps]}/${values_max[net_tx_mbps]} Mbps (${net_tx_pcent}%)\n\n"
+	tooltip+="<b>     net_rx</b>: ${values[net_rx_mbit_s]}/${values_max[net_rx_mbit_s]} Mbps (${net_rx_pcent}%)\n"
+	tooltip+="<b>     net_tx</b>: ${values[net_tx_mbit_s]}/${values_max[net_tx_mbit_s]} Mbps (${net_tx_pcent}%)\n\n"
+}
+
+get_net_skt() {
+	mapfile -t < <(grep -hc '^\s\+[0-9]\+:\s' \
+		"/proc/net/tcp" \
+		"/proc/net/tcp6" \
+		"/proc/net/udp" \
+		"/proc/net/udp6") net_skt
+
+	values+=([net_skt_tcp]=$((${net_skt[0]}+${net_skt[1]})))
+	values+=([net_skt_udp]=$((${net_skt[2]}+${net_skt[3]})))
+
+	net_skt_tcp_pcent=$(get_pcent "${values[net_skt_tcp]}" "${values_max[net_skt_tcp]}")
+	net_skt_udp_pcent=$(get_pcent "${values[net_skt_udp]}" "${values_max[net_skt_udp]}")
+	values_pcent+=("$net_skt_tcp_pcent" "$net_skt_udp_pcent")
+
+	tooltip+="<b>net_skt_tcp</b>: ${values[net_skt_tcp]}/${values_max[net_skt_tcp]} (${net_skt_tcp_pcent}%)\n"
+	tooltip+="<b>net_skt_udp</b>: ${values[net_skt_udp]}/${values_max[net_skt_udp]} (${net_skt_udp_pcent}%)\n\n"
 }
 
 get_disk_rw() {
@@ -96,33 +196,34 @@ get_disk_rw() {
 		"/sys/block/$disk_device/stat")
 
 	values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb" )
-	values+=([disk_r_mbps]=$(get_rate "$disk_r_mb" "${values_old[disk_r_mb]}" "$date" "${values_old[date]}"))
-	values+=([disk_w_mbps]=$(get_rate "$disk_w_mb" "${values_old[disk_w_mb]}" "$date" "${values_old[date]}"))
+	values+=([disk_r_mbyte_s]=$(get_rate "$disk_r_mb" "${values_old[disk_r_mb]}" "$date" "${values_old[date]}"))
+	values+=([disk_w_mbyte_s]=$(get_rate "$disk_w_mb" "${values_old[disk_w_mb]}" "$date" "${values_old[date]}"))
 
-	disk_r_pcent=$(get_pcent "${values[disk_r_mbps]}" "${values_max[disk_r_mbps]}")
-	disk_w_pcent=$(get_pcent "${values[disk_w_mbps]}" "${values_max[disk_w_mbps]}")
+	disk_r_pcent=$(get_pcent "${values[disk_r_mbyte_s]}" "${values_max[disk_r_mbyte_s]}")
+	disk_w_pcent=$(get_pcent "${values[disk_w_mbyte_s]}" "${values_max[disk_w_mbyte_s]}")
 	values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
 
-	tooltip+="disk_r: ${values[disk_r_mbps]}/${values_max[disk_r_mbps]} MBps (${disk_r_pcent}%)\n"
-	tooltip+="disk_w: ${values[disk_w_mbps]}/${values_max[disk_w_mbps]} MBps (${disk_w_pcent}%)\n\n"
+	tooltip+="<b>     disk_r</b>: ${values[disk_r_mbyte_s]}/${values_max[disk_r_mbyte_s]} MBps (${disk_r_pcent}%)\n"
+	tooltip+="<b>     disk_w</b>: ${values[disk_w_mbyte_s]}/${values_max[disk_w_mbyte_s]} MBps (${disk_w_pcent}%)"
 
 }
 
 get_power() {
-	# Superuser privileges are required to read these values.
-	# https://github.com/djselbeck/rapl-read-ryzen
 	if [[ "$EUID" -eq 0 ]]; then
+		# https://github.com/djselbeck/rapl-read-ryzen
 		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
 		values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
 
 		cpu_w_pcent=$(get_pcent "${values[cpu_w]}" "${values_old[cpu_w]}")
 		gpu_w_pcent=$(get_pcent "${values[gpu_w]}" "${values_old[gpu_w]}")
 		values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
-		
-		tooltip+="cpu_power: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
-		tooltip+="gpu_power: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
+
+		tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
+		tooltip+="<b>  gpu_power</b>: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
+	else
+		tooltip+="<b>  cpu_power</b>: N/A\n"
+		tooltip+="<b>  gpu_power</b>: N/A\n"
 	fi
-	
 }
 
 get_temp() {
@@ -139,41 +240,9 @@ get_temp() {
 	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]}" "${values_max[ssd_temp]}")
 	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
 
-	tooltip+="cpu_temp: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
-	tooltip+="gpu_temp: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
-	tooltip+="ssd_temp: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
-
-}
-
-get_example() {
-	# This function is an example on how additional information can be added to the graph.
-	# In this example, it's the number of running processes on the system.
-	# Normally, all instances of "example" would be "num_procs".
-
-	# First, get the raw value of whatever data should be retrieved.
-	example=$(ps aux --no-heading | wc -l)
-
-	# Since the bars height is calculated as a percentage, we need to set a maximum.
-	# Preferably, this is set by adding the key "num_procs" and value to the "values_max" array.
-
-	# To calculate percentages, we can use the get_pcent() function.
-	example_pcent=$(get_pcent "$example" "${values_max[example]}")
-
-	# Once we have a percentage, we can append this information to the (indexed) "values_pcent" array.
-	# This will add a new bar to the SVG graph. Optionally, we can prepend a hard-coded "0" to create
-	# a gap before the previous bars.
-	example_pcent+=(0 "$example_pcent")
-
-	# In order to save the maximum value seen and use "auto" setting, the raw value must be appended
-	# To the (associative) "values" array.
-	values+=([example]="$example")
-
-	# Then, add the information to the tooltip so that it appears when hovering the graph.
-	tooltip+="\n\nexample $example/${values_max[example]} (${example_pcent}%)"
-
-	# Finally, make sure the function exists (and is not commented) in the "keys" array.
-	
-	# That's it!
+	tooltip+="<b>   cpu_temp</b>: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
+	tooltip+="<b>   gpu_temp</b>: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
+	tooltip+="<b>   ssd_temp</b>: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
 }
 
 data_load() {
@@ -181,7 +250,7 @@ data_load() {
 
 	for i in "${!values_max[@]}"; do
 		if [[ "${values_max[$i]}" == "auto" ]]; then
-			values_max[$i]=${values_old[$i]}
+			values_max[$i]="${values_old[$i]}"
 		fi
 
 		if [[ -z "${values_old[$i]}" ]]; then
@@ -212,21 +281,16 @@ get_rate() {
 		if (date>date_old) {printf "%.1f", (new-old)/((date-date_old)/1000)} else {print 0}}'
 }
 
-write_history() {
-	values_joined=$(printf ",%s" "${values[@]}")
-	echo "${date::-3}${values_joined}" >> "/tmp/genmon-barchart-history.txt"
-}
-
 draw_elements() {
 	local svg_width=$(((svg_width-svg_margin)/${#values_pcent[@]}-svg_margin))
 
 	for ((i=0; i<${#values_pcent[@]}; i++)); do
 		local x=$(((svg_width+svg_margin)*i))
 		local svg_height=$((((${values_pcent[$i]%.*}+5)/10)*10))
-		
+
 		bars+="<rect class='bar bar--$i' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
 	done
-	
+
 	for i in {0..100..10}; do
 		lines+="<line class='line' x1='0' y1='${i}%' x2='100%' y2='${i}%' />"
 	done
@@ -243,21 +307,20 @@ create_svg() {
 
 		<style>
 			.container { fill: #000; }
-			.bar { fill: #FFF; }
-			.bar--0 { fill: #A93226; }
-			.bar--1 { fill: #CB4335; }
-			.bar--2 { fill: #884EA0; }
-			.bar--3 { fill: #7D3C98; }
-			.bar--4 { fill: #2471A3; }
-			.bar--5 { fill: #2E86C1; }
-			.bar--6 { fill: #17A589; }
-			.bar--7 { fill: #138D75; }
-			.bar--8 { fill: #229954; }
-			.bar--9 { fill: #28B463; }
-			.bar--10 { fill: #D4AC0D; }
-			.bar--11 { fill: #D68910; }
-			.bar--12 { fill: #CA6F1E; }
-			.bar--13 { fill: #BA4A00; }
+			.bar:nth-of-type(14n+1) { fill: #A93226; }
+			.bar:nth-of-type(14n+2) { fill: #CB4335; }
+			.bar:nth-of-type(14n+3) { fill: #884EA0; }
+			.bar:nth-of-type(14n+4) { fill: #7D3C98; }
+			.bar:nth-of-type(14n+5) { fill: #2471A3; }
+			.bar:nth-of-type(14n+6) { fill: #2E86C1; }
+			.bar:nth-of-type(14n+7) { fill: #17A589; }
+			.bar:nth-of-type(14n+8) { fill: #138D75; }
+			.bar:nth-of-type(14n+9) { fill: #229954; }
+			.bar:nth-of-type(14n+10) { fill: #28B463; }
+			.bar:nth-of-type(14n+11) { fill: #D4AC0D; }
+			.bar:nth-of-type(14n+12) { fill: #D68910; }
+			.bar:nth-of-type(14n+13) { fill: #CA6F1E; }
+			.bar:nth-of-type(14n+14) { fill: #BA4A00; }
 			.line { stroke: #000; stroke-width: $svg_margin }
 		</style>
 	
@@ -271,17 +334,11 @@ create_svg() {
 	SVG
 }
 
-date=$(date '+%s%3N')
+write_history() {
+	values_joined=$(printf ",%s" "${values[@]}")
+	echo "${date::-3}${values_joined}" >> "/tmp/genmon-barchart-history.txt"
+}
 
-declare -A values=()
-declare -a values_pcent=()
-
-data_load
-for i in "${keys[@]}"; do "get_${i}"; done
-data_save
-create_svg
-#write_history
-
-echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>${tooltip}</tt></tool>"
+main "$@"
 
 exit 0
