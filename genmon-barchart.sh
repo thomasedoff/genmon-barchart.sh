@@ -32,6 +32,7 @@ declare -A values_max=(
 	[num_users]="auto"
 	[num_procs]="auto"
 	[cpu_freq]="auto"
+	[cpu_load]="auto"
 	[net_rx_mbit_s]="auto"
 	[net_tx_mbit_s]="auto"
 	[net_skt_tcp]="auto"
@@ -87,8 +88,11 @@ get_num_warn() {
 
 		# 3: Ensure that a maximum value exists in the "max_values" array declared above.
 
-		# 4: Get the raw values percentage of the maximum value.
-		num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
+		# 4a: Get the raw values (rough) percentage of the maximum value
+		num_warn_pcent=$((100*${values[num_warn]}/${values_max[num_warn]}))
+		
+		# 4b: If more precision is required, we could use the get_pcent() function
+		#num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
 
 		# 5: Push the percetage into the "values_pcent" array.
 		values_pcent+=("$num_warn_pcent")
@@ -103,7 +107,7 @@ get_num_warn() {
 get_num_users() {
 	values+=([num_users]=$(who | wc -l))
 
-	num_users_pcent=$(get_pcent "${values[num_users]}" "${values_max[num_users]}")
+	num_users_pcent=$((100*${values[num_users]}/${values_max[num_users]}))
 	values_pcent+=("$num_users_pcent")
 
 	tooltip+="<b>  num_users</b>: ${values[num_users]}/${values_max[num_users]} (${num_users_pcent}%)\n"
@@ -112,25 +116,32 @@ get_num_users() {
 get_num_procs() {
 	values+=([num_procs]=$(ls -d /proc/[1-9]* | wc -l))
 
-	num_procs_pcent=$(get_pcent "${values[num_procs]}" "${values_max[num_procs]}")
+	num_procs_pcent=$((100*${values[num_procs]}/${values_max[num_procs]}))
 	values_pcent+=("$num_procs_pcent")
 
 	tooltip+="<b>  num_procs</b>: ${values[num_procs]}/${values_max[num_procs]} (${num_procs_pcent}%)\n\n"
 }
 
 get_cpu_load() {
-	read -r cpu_cores cpu_freq < <(awk '/^cpu MHz/{count++; freq+=$4} END {printf "%d %d", count, freq/count}' \
-		/proc/cpuinfo)
+	read -r cpu_freq cpu_freq_pcent cpu_load cpu_load_pcent < <(awk \
+		-v cpu_freq_max=${values_max[cpu_freq]} \
+		-v cpu_load=$(cut -d' ' -f1 < /proc/loadavg) \
+		-v cpu_load_max=${values_max[cpu_load]} '/^cpu MHz/ {
+			num_cores++
+			mhz_sum+=$4
+		} END {
+			cpu_freq=mhz_sum/num_cores
+			cpu_freq_pcent = (cpu_load_max>0) ? cpu_freq/cpu_freq_max*100 : 0
+			cpu_load_pcent = (cpu_load_max>0) ? cpu_load/cpu_load_max*100 : 0
+	
+			printf "%d %d %.2f %d", cpu_freq, cpu_freq_pcent, cpu_load, cpu_load_pcent
+		}' /proc/cpuinfo)
 
-	values+=([cpu_freq]="$cpu_freq")
-	values+=([cpu_load]=$(cut -d' ' -f1 < /proc/loadavg))
-
-	cpu_freq_pcent=$(get_pcent "${values[cpu_freq]}" "${values_max[cpu_freq]}")
-	cpu_load_pcent=$(get_pcent "${values[cpu_load]}" "$cpu_cores")
+	values+=([cpu_freq]="$cpu_freq" [cpu_load]="$cpu_load")
 	values_pcent+=("$cpu_freq_pcent" "$cpu_load_pcent")
 
 	tooltip+="<b>   cpu_freq</b>: ${values[cpu_freq]}/${values_max[cpu_freq]} MHz (${cpu_freq_pcent}%)\n"
-	tooltip+="<b>   cpu_load</b>: ${values[cpu_load]}/$cpu_cores (${cpu_load_pcent}%)\n\n"
+	tooltip+="<b>   cpu_load</b>: ${values[cpu_load]}/${values_max[cpu_load]} (${cpu_load_pcent}%)\n\n"
 }
 
 get_mem_usage() {
@@ -157,16 +168,33 @@ get_disk_usage() {
 
 
 get_net_rxtx() {
-	read -r net_rx_mb net_tx_mb < <(awk '{printf "%f ", $1*8/10^6}' \
-		 "/sys/class/net/$net_device/statistics/rx_bytes" \
-		 "/sys/class/net/$net_device/statistics/tx_bytes")
+	read -r net_rx_mb net_rx_mbit_s net_rx_pcent net_tx_mb net_tx_mbit_s net_tx_pcent < <(awk \
+		-v net_rx_mb_old=${values_old[net_rx_mb]} \
+		-v net_tx_mb_old=${values_old[net_tx_mb]} \
+		-v net_rx_mbit_s_max=${values_max[net_rx_mbit_s]} \
+		-v net_tx_mbit_s_max=${values_max[net_tx_mbit_s]} \
+		-v date=$date \
+		-v date_old=${values_old[date]} 'BEGIN {
+			time_delta=(date-date_old)/1000
+		} {
+			if (FILENAME ~ /rx/) {
+				net_xx_mb_old = net_rx_mb_old
+				net_xx_mbit_s_max = net_rx_mbit_s_max
+			} else {
+				net_xx_mb_old = net_tx_mb_old
+				net_xx_mbit_s_max = net_tx_mbit_s_max
+			}
+		
+			net_xx_mb=$1*8/10^6
+			net_xx_mbit_s=(net_xx_mb-net_xx_mb_old)/time_delta
+			net_xx_pcent = (net_xx_mbit_s_max>0) ? net_xx_mbit_s/net_xx_mbit_s_max*100 : 0
+		
+			printf "%f %.1f %d ", net_xx_mb, net_xx_mbit_s, net_xx_pcent
+		}' /sys/class/net/$net_device/statistics/*x_bytes)
 
-	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb" )
-	values+=([net_rx_mbit_s]=$(get_rate "$net_rx_mb" "${values_old[net_rx_mb]}" "$date" "${values_old[date]}"))
-	values+=([net_tx_mbit_s]=$(get_rate "$net_tx_mb" "${values_old[net_tx_mb]}" "$date" "${values_old[date]}"))
+	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb")
+	values+=([net_rx_mbit_s]="$net_rx_mbit_s" [net_tx_mbit_s]="$net_tx_mbit_s")
 
-	net_rx_pcent=$(get_pcent "${values[net_rx_mbit_s]}" "${values_max[net_rx_mbit_s]}")
-	net_tx_pcent=$(get_pcent "${values[net_tx_mbit_s]}" "${values_max[net_tx_mbit_s]}")
 	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
 
 	tooltip+="<b>     net_rx</b>: ${values[net_rx_mbit_s]}/${values_max[net_rx_mbit_s]} Mbps (${net_rx_pcent}%)\n"
@@ -183,8 +211,8 @@ get_net_skt() {
 	values+=([net_skt_tcp]=$((${net_skt[0]}+${net_skt[1]})))
 	values+=([net_skt_udp]=$((${net_skt[2]}+${net_skt[3]})))
 
-	net_skt_tcp_pcent=$(get_pcent "${values[net_skt_tcp]}" "${values_max[net_skt_tcp]}")
-	net_skt_udp_pcent=$(get_pcent "${values[net_skt_udp]}" "${values_max[net_skt_udp]}")
+	net_skt_tcp_pcent=$((100*${values[net_skt_tcp]}/${values_max[net_skt_tcp]}))
+	net_skt_udp_pcent=$((100*${values[net_skt_udp]}/${values_max[net_skt_udp]}))
 	values_pcent+=("$net_skt_tcp_pcent" "$net_skt_udp_pcent")
 
 	tooltip+="<b>net_skt_tcp</b>: ${values[net_skt_tcp]}/${values_max[net_skt_tcp]} (${net_skt_tcp_pcent}%)\n"
@@ -192,30 +220,46 @@ get_net_skt() {
 }
 
 get_disk_rw() {
-	read -r disk_r_mb disk_w_mb < <(awk '{printf "%d %d", $3*512/1024/1024, $7*512/1024/1024 }' \
-		"/sys/block/$disk_device/stat")
+	read -r disk_r_mb disk_r_mbyte_s disk_r_pcent disk_w_mb disk_w_mbyte_s disk_w_pcent < <(awk \
+		-v disk_r_mb_old=${values_old[disk_r_mb]} \
+		-v disk_w_mb_old=${values_old[disk_w_mb]} \
+		-v disk_r_mbyte_s_max=${values_max[disk_r_mbyte_s]} \
+		-v disk_w_mbyte_s_max=${values_max[disk_w_mbyte_s]} \
+		-v date=$date \
+		-v date_old=${values_old[date]} 'BEGIN {
+			time_delta=(date-date_old)/1000
+		} {
+			disk_r_mb=$3*512/1024/1024
+			disk_w_mb=$7*512/1024/1024
+			
+			disk_r_mbyte_s=(disk_r_mb-disk_r_mb_old)/time_delta
+			disk_w_mbyte_s=(disk_w_mb-disk_w_mb_old)/time_delta
+			
+			disk_r_pcent = (disk_r_mbyte_s_max>0) ? disk_r_mbyte_s/disk_r_mbyte_s_max*100 : 0
+			disk_w_pcent = (disk_w_mbyte_s_max>0) ? disk_w_mbyte_s/disk_w_mbyte_s_max*100 : 0
+			
+			printf "%d %.1f %d ", disk_r_mb, disk_r_mbyte_s, disk_r_pcent
+			printf "%d %.1f %d ", disk_w_mb, disk_w_mbyte_s, disk_w_pcent
+			
+		}' "/sys/block/$disk_device/stat")
+		
+		values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb")
+		values+=([disk_r_mbyte_s]="$disk_r_mbyte_s" [disk_w_mbyte_s]="$disk_w_mbyte_s")
+		
+		values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
 
-	values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb" )
-	values+=([disk_r_mbyte_s]=$(get_rate "$disk_r_mb" "${values_old[disk_r_mb]}" "$date" "${values_old[date]}"))
-	values+=([disk_w_mbyte_s]=$(get_rate "$disk_w_mb" "${values_old[disk_w_mb]}" "$date" "${values_old[date]}"))
-
-	disk_r_pcent=$(get_pcent "${values[disk_r_mbyte_s]}" "${values_max[disk_r_mbyte_s]}")
-	disk_w_pcent=$(get_pcent "${values[disk_w_mbyte_s]}" "${values_max[disk_w_mbyte_s]}")
-	values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
-
-	tooltip+="<b>     disk_r</b>: ${values[disk_r_mbyte_s]}/${values_max[disk_r_mbyte_s]} MBps (${disk_r_pcent}%)\n"
-	tooltip+="<b>     disk_w</b>: ${values[disk_w_mbyte_s]}/${values_max[disk_w_mbyte_s]} MBps (${disk_w_pcent}%)"
-
+		tooltip+="<b>     disk_r</b>: ${values[disk_r_mbyte_s]}/${values_max[disk_r_mbyte_s]} MBps (${disk_r_pcent}%)\n"
+		tooltip+="<b>     disk_w</b>: ${values[disk_w_mbyte_s]}/${values_max[disk_w_mbyte_s]} MBps (${disk_w_pcent}%)"
 }
 
 get_power() {
 	if [[ "$EUID" -eq 0 ]]; then
 		# https://github.com/djselbeck/rapl-read-ryzen
-		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
+		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1"} else {printf "%.1f", $3}}'))
 		values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
 
-		cpu_w_pcent=$(get_pcent "${values[cpu_w]}" "${values_old[cpu_w]}")
-		gpu_w_pcent=$(get_pcent "${values[gpu_w]}" "${values_old[gpu_w]}")
+		cpu_w_pcent=$((100*${values[cpu_w]%%.*}/${values_max[cpu_w]%%.*}))
+		gpu_w_pcent=$((100*${values[gpu_w]%%.*}/${values_max[gpu_w]%%.*}))
 		values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
 
 		tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
@@ -235,9 +279,9 @@ get_temp() {
 
 	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
 
-	cpu_temp_pcent=$(get_pcent "${values[cpu_temp]}" "${values_max[cpu_temp]}")
-	gpu_temp_pcent=$(get_pcent "${values[gpu_temp]}" "${values_max[gpu_temp]}")
-	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]}" "${values_max[ssd_temp]}")
+	cpu_temp_pcent=$((100*${values[cpu_temp]%%.*}/${values_max[cpu_temp]}))
+	gpu_temp_pcent=$((100*${values[gpu_temp]%%.*}/${values_max[gpu_temp]}))
+	ssd_temp_pcent=$((100*${values[ssd_temp]%%.*}/${values_max[ssd_temp]}))
 	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
 
 	tooltip+="<b>   cpu_temp</b>: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
@@ -254,7 +298,7 @@ data_load() {
 		fi
 
 		if [[ -z "${values_old[$i]}" ]]; then
-			values_max[$i]=0
+			values_max[$i]=-1
 		fi
 	done
 }
