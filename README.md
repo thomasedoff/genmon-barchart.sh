@@ -16,7 +16,7 @@ To reduce overhead, the script retrieves data from procfs, sysfs, etc whenever f
 | num_warn<sup>1</sup>  | Log entries with importance warn or higher
 | num_users  | Users logged on 
 | num_procs  | Running processes
-| cpu_load   | CPU frequence and average load
+| cpu_load   | CPU frequency and average load
 | mem_usage  | Memory usage
 | disk_usage | Disk usage
 | net_rxtx   | Network IO (receive/transmit)
