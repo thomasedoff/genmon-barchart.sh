@@ -232,20 +232,19 @@ get_disk_rw() {
 			disk_r_mb=$3*512/1024/1024
 			disk_w_mb=$7*512/1024/1024
 			
-			disk_r_mbyte_s=(disk_r_mb-disk_r_mb_old)/time_delta
-			disk_w_mbyte_s=(disk_w_mb-disk_w_mb_old)/time_delta
+			disk_r_mbyte_s = (disk_r_mb>disk_r_mb_old) ? (disk_r_mb-disk_r_mb_old)/time_delta : 0
+			disk_w_mbyte_s = (disk_w_mb>disk_w_mb_old) ? (disk_w_mb-disk_w_mb_old)/time_delta : 0
 			
 			disk_r_pcent = (disk_r_mbyte_s_max>0) ? disk_r_mbyte_s/disk_r_mbyte_s_max*100 : 0
 			disk_w_pcent = (disk_w_mbyte_s_max>0) ? disk_w_mbyte_s/disk_w_mbyte_s_max*100 : 0
 			
-			printf "%d %.1f %d ", disk_r_mb, disk_r_mbyte_s, disk_r_pcent
-			printf "%d %.1f %d ", disk_w_mb, disk_w_mbyte_s, disk_w_pcent
-			
+			printf "%f %.1f %d ", disk_r_mb, disk_r_mbyte_s, disk_r_pcent
+			printf "%f %.1f %d ", disk_w_mb, disk_w_mbyte_s, disk_w_pcent
 		}' "/sys/block/$disk_device/stat")
-		
+
 		values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb")
 		values+=([disk_r_mbyte_s]="$disk_r_mbyte_s" [disk_w_mbyte_s]="$disk_w_mbyte_s")
-		
+
 		values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
 
 		tooltip+="<b>     disk_r</b>: ${values[disk_r_mbyte_s]}/${values_max[disk_r_mbyte_s]} MBps (${disk_r_pcent}%)\n"
@@ -255,7 +254,7 @@ get_disk_rw() {
 get_power() {
 	if [[ "$EUID" -eq 0 ]]; then
 		# https://github.com/djselbeck/rapl-read-ryzen
-		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1"} else {printf "%.1f", $3}}'))
+		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1.0"} else {printf "%.1f", $3}}'))
 		values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
 
 		cpu_w_pcent=$((100*${values[cpu_w]%%.*}/${values_max[cpu_w]%%.*}))
