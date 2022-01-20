@@ -10,7 +10,7 @@ The script can be an alternative/addition to [CPUGraph](https://docs.xfce.org/pa
 
 To reduce overhead, the script retrieves data from procfs, sysfs, etc whenever favorable.
 
-## Bars
+## Functions
 | Function   | Description |
 -------------|-------------|
 | num_warn<sup>1</sup>  | Log entries with importance warn or higher
