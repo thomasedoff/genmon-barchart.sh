@@ -92,12 +92,10 @@ num_warn() {
 
 	# 3: Ensure that a maximum value exists in the "max_values" array declared above.
 
-	# 4a: Get the raw values (rough) percentage of the maximum value
-	num_warn_pcent=$((100*values[num_warn]/values_max[num_warn]))
+	# 4: Get the raw values (rough) percentage of the maximum value
+	# If more precision is required, switch to awk in get_pcent().
+	num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
 	
-	# 4b: If more precision is required, we could use the get_pcent() function
-	#num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
-
 	# 5: Push the percetage into the "values_pcent" array.
 	values_pcent+=("$num_warn_pcent")
 
@@ -108,7 +106,7 @@ num_warn() {
 num_users() {
 	values+=([num_users]=$(who | wc -l))
 
-	num_users_pcent=$((100*values[num_users]/values_max[num_users]))
+	num_users_pcent=$(get_pcent "${values[num_users]}" "${values_max[num_users]}")
 	values_pcent+=("$num_users_pcent")
 
 	tooltip+="<b>  num_users</b>: ${values[num_users]}/${values_max[num_users]} (${num_users_pcent}%)\n"
@@ -117,7 +115,7 @@ num_users() {
 num_procs() {
 	values+=([num_procs]=$(find /proc/ -maxdepth 1 -type d -name "[1-9]*" | wc -l))
 
-	num_procs_pcent=$((100*values[num_procs]/values_max[num_procs]))
+	num_procs_pcent=$(get_pcent "${values[num_procs]}" "${values_max[num_procs]}")
 	values_pcent+=("$num_procs_pcent")
 
 	tooltip+="<b>  num_procs</b>: ${values[num_procs]}/${values_max[num_procs]} (${num_procs_pcent}%)\n\n"
@@ -220,8 +218,8 @@ net_skt() {
 	values+=([net_skt_tcp]=$((net_skt[0]+net_skt[1])))
 	values+=([net_skt_udp]=$((net_skt[2]+net_skt[3])))
 
-	net_skt_tcp_pcent=$((100*values[net_skt_tcp]/values_max[net_skt_tcp]))
-	net_skt_udp_pcent=$((100*values[net_skt_udp]/values_max[net_skt_udp]))
+	net_skt_tcp_pcent=$(get_pcent "${values[net_skt_tcp]}" "${values_max[net_skt_tcp]}")
+	net_skt_udp_pcent=$(get_pcent "${values[net_skt_udp]}" "${values_max[net_skt_udp]}")
 	values_pcent+=("$net_skt_tcp_pcent" "$net_skt_udp_pcent")
 
 	tooltip+="<b>    net_tcp</b>: ${values[net_skt_tcp]}/${values_max[net_skt_tcp]} (${net_skt_tcp_pcent}%)\n"
@@ -272,11 +270,12 @@ power() {
 	fi
 
 	# https://github.com/djselbeck/rapl-read-ryzen
-	values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1.0"} else {printf "%.1f", $3}}'))
+	values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
 	values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
 
-	cpu_w_pcent=$((100*${values[cpu_w]%%.*}/${values_max[cpu_w]%%.*}))
-	gpu_w_pcent=$((100*${values[gpu_w]%%.*}/${values_max[gpu_w]%%.*}))
+
+	cpu_w_pcent=$(get_pcent "${values[cpu_w]%%.*}" "${values_max[cpu_w]%%.*}")
+	gpu_w_pcent=$(get_pcent "${values[gpu_w]%%.*}" "${values_max[gpu_w]%%.*}")
 	values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
 
 	tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
@@ -292,9 +291,9 @@ temp() {
 
 	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
 
-	cpu_temp_pcent=$((100*${values[cpu_temp]%%.*}/${values_max[cpu_temp]%%.*}))
-	gpu_temp_pcent=$((100*${values[gpu_temp]%%.*}/${values_max[gpu_temp]%%.*}))
-	ssd_temp_pcent=$((100*${values[ssd_temp]%%.*}/${values_max[ssd_temp]%%.*}))
+	cpu_temp_pcent=$(get_pcent "${values[cpu_temp]%%.*}" "${values_max[cpu_temp]%%.*}")
+	gpu_temp_pcent=$(get_pcent "${values[gpu_temp]%%.*}" "${values_max[gpu_temp]%%.*}")
+	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]%%.*}" "${values_max[ssd_temp]%%.*}")
 	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
 
 	tooltip+="<b>   cpu_temp</b>: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
@@ -311,7 +310,7 @@ data_load() {
 		fi
 
 		if [[ -z "${values_old[$i]}" ]]; then
-			values_max[$i]=-1
+			values_max[$i]=0
 		fi
 	done
 }
@@ -329,8 +328,12 @@ data_save() {
 }
 
 get_pcent() {
-	awk -v value="$1" -v total="$2" 'BEGIN {
-		if (value>0 && total>0) {printf "%d", value/total*100} else {print 0}}'
+	if [[ "$1" == 0 || "$2" == 0 ]]; then
+		echo 0
+	else
+		echo $((100*$1/$2))
+		#awk -v value="$1" -v total="$2" 'BEGIN {printf "%d", value/total*100}'
+	fi
 }
 
 get_rate() {
