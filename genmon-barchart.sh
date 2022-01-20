@@ -78,30 +78,30 @@ get_num_warn() {
 	# In this function, the process of adding data is described.
 
 	# In this case, we need to check whether the script is run with Superuser privileges.
-	if [[ "$EUID" -eq 0 ]]; then
-
-		# 1: Retrieve the raw value of whatever data we will be adding.
-		num_warn=$(journalctl --priority=warning --since -5min | wc -l)
-	
-		# 2: Push the raw value into the "values" array.
-		values+=([num_warn]="$num_warn")
-
-		# 3: Ensure that a maximum value exists in the "max_values" array declared above.
-
-		# 4a: Get the raw values (rough) percentage of the maximum value
-		num_warn_pcent=$((100*${values[num_warn]}/${values_max[num_warn]}))
-		
-		# 4b: If more precision is required, we could use the get_pcent() function
-		#num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
-
-		# 5: Push the percetage into the "values_pcent" array.
-		values_pcent+=("$num_warn_pcent")
-	
-		# 6: Finally, append everything to the tooltip.
-		tooltip+="<b>   num_warn</b>: ${values[num_warn]}/${values_max[num_warn]} (${num_warn_pcent}%)\n\n"
-	else
+	if [[ "$EUID" -ne 0 ]]; then
 		tooltip+="<b>   num_warn</b>: N/A\n\n"
+		return
 	fi
+
+	# 1: Retrieve the raw value of whatever data we will be adding.
+	num_warn=$(journalctl --priority=warning --since -5min | wc -l)
+
+	# 2: Push the raw value into the "values" array.
+	values+=([num_warn]="$num_warn")
+
+	# 3: Ensure that a maximum value exists in the "max_values" array declared above.
+
+	# 4a: Get the raw values (rough) percentage of the maximum value
+	num_warn_pcent=$((100*${values[num_warn]}/${values_max[num_warn]}))
+	
+	# 4b: If more precision is required, we could use the get_pcent() function
+	#num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
+
+	# 5: Push the percetage into the "values_pcent" array.
+	values_pcent+=("$num_warn_pcent")
+
+	# 6: Finally, append everything to the tooltip.
+	tooltip+="<b>   num_warn</b>: ${values[num_warn]}/${values_max[num_warn]} (${num_warn_pcent}%)\n\n"
 }
 
 get_num_users() {
@@ -114,7 +114,7 @@ get_num_users() {
 }
 
 get_num_procs() {
-	values+=([num_procs]=$(ls -d /proc/[1-9]* | wc -l))
+	values+=([num_procs]=$(find /proc/ -maxdepth 1 -type d -name "[1-9]*" | wc -l))
 
 	num_procs_pcent=$((100*${values[num_procs]}/${values_max[num_procs]}))
 	values_pcent+=("$num_procs_pcent")
@@ -252,21 +252,22 @@ get_disk_rw() {
 }
 
 get_power() {
-	if [[ "$EUID" -eq 0 ]]; then
-		# https://github.com/djselbeck/rapl-read-ryzen
-		values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1.0"} else {printf "%.1f", $3}}'))
-		values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
-
-		cpu_w_pcent=$((100*${values[cpu_w]%%.*}/${values_max[cpu_w]%%.*}))
-		gpu_w_pcent=$((100*${values[gpu_w]%%.*}/${values_max[gpu_w]%%.*}))
-		values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
-
-		tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
-		tooltip+="<b>  gpu_power</b>: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
-	else
+	if [[ "$EUID" -ne 0 ]]; then
 		tooltip+="<b>  cpu_power</b>: N/A\n"
 		tooltip+="<b>  gpu_power</b>: N/A\n"
+		return
 	fi
+
+	# https://github.com/djselbeck/rapl-read-ryzen
+	values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); if ($3<1) {printf "1.0"} else {printf "%.1f", $3}}'))
+	values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
+
+	cpu_w_pcent=$((100*${values[cpu_w]%%.*}/${values_max[cpu_w]%%.*}))
+	gpu_w_pcent=$((100*${values[gpu_w]%%.*}/${values_max[gpu_w]%%.*}))
+	values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
+
+	tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
+	tooltip+="<b>  gpu_power</b>: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
 }
 
 get_temp() {
@@ -278,9 +279,9 @@ get_temp() {
 
 	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
 
-	cpu_temp_pcent=$((100*${values[cpu_temp]%%.*}/${values_max[cpu_temp]}))
-	gpu_temp_pcent=$((100*${values[gpu_temp]%%.*}/${values_max[gpu_temp]}))
-	ssd_temp_pcent=$((100*${values[ssd_temp]%%.*}/${values_max[ssd_temp]}))
+	cpu_temp_pcent=$((100*${values[cpu_temp]%%.*}/${values_max[cpu_temp]%%.*}))
+	gpu_temp_pcent=$((100*${values[gpu_temp]%%.*}/${values_max[gpu_temp]%%.*}))
+	ssd_temp_pcent=$((100*${values[ssd_temp]%%.*}/${values_max[ssd_temp]%%.*}))
 	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
 
 	tooltip+="<b>   cpu_temp</b>: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
