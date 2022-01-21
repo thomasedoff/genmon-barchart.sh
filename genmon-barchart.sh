@@ -11,20 +11,35 @@ disk_device="nvme1n1"
 net_device="enp6s0"
 values_file="/tmp/genmon-barchart-values.txt"
 
-# Functions
-declare -a functions=(
-	#num_warn
-	num_users
-	num_procs
-	cpu_load
-	mem_usage
-	disk_usage
-	net_rxtx
-	net_skt
-	disk_rw
-	#power
-	#temp
+# Bars to be included in the chart
+declare -a values_order=(
+#	"num_warn"
+	"num_users"
+	"num_procs"
+	"<blank>"
+	"cpu_freq"
+	"cpu_load"
+	"<blank>"
+	"mem_usage_gb"
+	"disk_usage_gb"
+	"<blank>"
+	"net_rx_mbit_s"
+	"net_tx_mbit_s"
+	"<blank>"
+	"net_skt_tcp"
+	"net_skt_udp"
+	"<blank>"
+	"disk_r_mbyte_s"
+	"disk_w_mbyte_s"
+#	"<blank>"
+#	"cpu_w"
+#	"gpu_w"
+#	"<blank>"
+#	"cpu_temp"
+#	"gpu_temp"
+#	"ssd_temp"
 )
+
 
 # Max values
 # If set to auto, the percentages will be based on the highest value recorded.
@@ -51,6 +66,7 @@ declare -A values_max=(
 svg_width=40
 svg_height=30
 svg_margin=1
+svg_include_blanks="false"
 
 main() {
 	date=$(date '+%s%3N')
@@ -62,63 +78,90 @@ main() {
 		source "$1"
 	fi
 
-	data_load
+	data_load "$values_file"
 
-	for function in "${functions[@]}"; do
-		"$function"
+	# Execute necessary functions based on requested bars
+	for i in "${values_order[@]}"; do
+		local pcent="0"
+		local unit=""
+		
+		case $i in
+			"num_warn") 
+				num_warn
+			;;
+			"num_users")
+				num_users
+			;;
+			"num_procs")
+				num_procs
+			;;
+			"cpu_freq" | "cpu_load")
+				[[ -v "values[$i]" ]] || cpu_load
+			;;
+			"mem_usage_gb")
+				mem_usage && unit="GB "
+			;;
+			"disk_usage_gb")
+				disk_usage "$disk_mount_point" && unit="GB "
+			;;
+			"net_rx_mbit_s" | "net_tx_mbit_s")
+				[[ -v "values[$i]" ]] || net_rxtx "$net_device" && unit="Mbps "
+			;;
+			"net_skt_tcp" | "net_skt_udp")
+				[[ -v "values[$i]" ]] || net_skt
+			;;
+			"disk_r_mbyte_s" | "disk_w_mbyte_s")
+				[[ -v "values[$i]" ]] || disk_rw "$disk_device" && unit="MBbps "
+			;;
+			"cpu_w" | "gpu_w")
+				[[ -v "values[$i]" ]] || power && unit="W "
+			;;
+			"cpu_temp" | "gpu_temp" | "ssd_temp")
+				[[ -v "values[$i]" ]] || temp && unit="C "
+			;;
+		esac
+		
+		# Add blanks to tooltip and chart
+		if [[ "$i" == "<blank>" ]]; then
+			tmp="\n"
+			[[ $svg_include_blanks == "true" ]] && values_pcent+=(0)
+		else
+			# Some functions provide percentages, no need to calculate them again
+			if [[ -v "values[${i}_pcent]" ]]; then
+				pcent="${values[${i}_pcent]}"
+			else
+				pcent=$(get_pcent "${values[$i]%%.*}" "${values_max[$i]%%.*}")
+			fi
+			
+			printf -v tmp "<b>%14s</b>: %s/%s %s(%s%%)\n" "$i" "${values[$i]}" "${values_max[$i]}" "$unit" "$pcent"
+			values_pcent+=("$pcent")	
+		fi
+
+		tooltip+=$tmp
 	done
 
-	data_save
 	create_svg
+	data_save "$values_file"
 	#write_history
 
-	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>${tooltip}</tt></tool>"
+	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>$tooltip</tt></tool>"
 }
 
 num_warn() {
-	# In this function, the process of adding data is described.
-
-	# In this case, we need to check whether the script is run with Superuser privileges.
 	if [[ "$EUID" -ne 0 ]]; then
 		tooltip+="<b>   num_warn</b>: N/A\n\n"
 		return
 	fi
 
-	# 1: Retrieve the raw value of whatever data we will be adding.
-	num_warn=$(journalctl --priority=warning --since -5min | wc -l)
-
-	# 2: Push the raw value into the "values" array.
-	values+=([num_warn]="$num_warn")
-
-	# 3: Ensure that a maximum value exists in the "max_values" array declared above.
-
-	# 4: Get the raw values (rough) percentage of the maximum value
-	# If more precision is required, switch to awk in get_pcent().
-	num_warn_pcent=$(get_pcent "${values[num_warn]}" "${values_max[num_warn]}")
-	
-	# 5: Push the percetage into the "values_pcent" array.
-	values_pcent+=("$num_warn_pcent")
-
-	# 6: Finally, append everything to the tooltip.
-	tooltip+="<b>   num_warn</b>: ${values[num_warn]}/${values_max[num_warn]} (${num_warn_pcent}%)\n\n"
+	values+=([num_warn]=$(journalctl --priority=warning --since -5min | wc -l))
 }
 
 num_users() {
 	values+=([num_users]=$(who | wc -l))
-
-	num_users_pcent=$(get_pcent "${values[num_users]}" "${values_max[num_users]}")
-	values_pcent+=("$num_users_pcent")
-
-	tooltip+="<b>  num_users</b>: ${values[num_users]}/${values_max[num_users]} (${num_users_pcent}%)\n"
 }
 
 num_procs() {
 	values+=([num_procs]=$(find /proc/ -maxdepth 1 -type d -name "[1-9]*" | wc -l))
-
-	num_procs_pcent=$(get_pcent "${values[num_procs]}" "${values_max[num_procs]}")
-	values_pcent+=("$num_procs_pcent")
-
-	tooltip+="<b>  num_procs</b>: ${values[num_procs]}/${values_max[num_procs]} (${num_procs_pcent}%)\n\n"
 }
 
 cpu_load() {
@@ -140,33 +183,23 @@ cpu_load() {
 		-v cpu_load="$(cut -d' ' -f1 < /proc/loadavg)" \
 		-v cpu_load_max="${values_max[cpu_load]}" "$awk_cpu_load" /proc/cpuinfo)
 
-	values+=([cpu_freq]="$cpu_freq" [cpu_load]="$cpu_load")
-	values_pcent+=("$cpu_freq_pcent" "$cpu_load_pcent")
-
-	tooltip+="<b>   cpu_freq</b>: ${values[cpu_freq]}/${values_max[cpu_freq]} MHz (${cpu_freq_pcent}%)\n"
-	tooltip+="<b>   cpu_load</b>: ${values[cpu_load]}/${values_max[cpu_load]} (${cpu_load_pcent}%)\n\n"
+	values+=([cpu_freq]="$cpu_freq" [cpu_freq_pcent]="$cpu_freq_pcent" [cpu_load]="$cpu_load" [cpu_load_pcent]="$cpu_load_pcent")
 }
 
 mem_usage() {
-	read -r mem_total_gb mem_usage_gb mem_usage_pcent < <(free --mega -t | \
+	read -r mem_total_gb mem_usage_gb mem_usage_gb_pcent < <(free --mega -t | \
 		awk 'NR==2{printf "%.1f %.1f %d", $2/1024, $3/1024, $3/$2*100}')
 
-	values+=([mem_usage_gb]="$mem_usage_gb")
-
-	values_pcent+=("$mem_usage_pcent")
-
-	tooltip+="<b>  mem_usage</b>: ${values[mem_usage_gb]}/$mem_total_gb GiB (${mem_usage_pcent}%)\n\n"
+	values+=([mem_usage_gb]="$mem_usage_gb" [mem_usage_gb_pcent]="$mem_usage_gb_pcent")
+	values_max+=([mem_usage_gb]="$mem_total_gb")
 }
 
 disk_usage() {
-	read -r disk_size_gb disk_usage_gb disk_usage_pcent < <(df -BG --output=size,used,pcent "$disk_mount_point" | \
+	read -r disk_size_gb disk_usage_gb disk_usage_gb_pcent < <(df -BG --output=size,used,pcent "$1" | \
 		awk 'NR==2{gsub("(G|%)", ""); print $1, $2, $3}')
 
-	values+=([disk_usage_gb]="$disk_usage_gb")
-
-	values_pcent+=("$disk_usage_pcent")
-
-	tooltip+="<b> disk_usage</b>: ${values[disk_usage_gb]}/$disk_size_gb GiB (${disk_usage_pcent}%)\n\n"
+	values+=([disk_usage_gb]="$disk_usage_gb" [disk_usage_gb_pcent]="$disk_usage_gb_pcent")
+	values_max+=([disk_usage_gb]="$disk_size_gb")
 }
 
 
@@ -184,13 +217,13 @@ net_rxtx() {
 			}
 			net_xx_mb=$1*8/10^6
 			net_xx_mbit_s=(net_xx_mb-net_xx_mb_old)/time_delta
-			net_xx_pcent = (net_xx_mbit_s_max>0) ? net_xx_mbit_s/net_xx_mbit_s_max*100 : 0
+			net_xx_mbit_s_pcent = (net_xx_mbit_s_max>0) ? net_xx_mbit_s/net_xx_mbit_s_max*100 : 0
 
-			printf "%f %.1f %d ", net_xx_mb, net_xx_mbit_s, net_xx_pcent
+			printf "%f %.1f %d ", net_xx_mb, net_xx_mbit_s, net_xx_mbit_s_pcent
 		}
 	EOF
 		
-	read -r net_rx_mb net_rx_mbit_s net_rx_pcent net_tx_mb net_tx_mbit_s net_tx_pcent < <(awk \
+	read -r net_rx_mb net_rx_mbit_s net_rx_mbit_s_pcent net_tx_mb net_tx_mbit_s net_tx_mbit_s_pcent < <(awk \
 		-v net_rx_mb_old="${values_old[net_rx_mb]}" \
 		-v net_tx_mb_old="${values_old[net_tx_mb]}" \
 		-v net_rx_mbit_s_max="${values_max[net_rx_mbit_s]}" \
@@ -201,11 +234,7 @@ net_rxtx() {
 
 	values+=([net_rx_mb]="$net_rx_mb" [net_tx_mb]="$net_tx_mb")
 	values+=([net_rx_mbit_s]="$net_rx_mbit_s" [net_tx_mbit_s]="$net_tx_mbit_s")
-
-	values_pcent+=("$net_rx_pcent" "$net_tx_pcent")
-
-	tooltip+="<b>     net_rx</b>: ${values[net_rx_mbit_s]}/${values_max[net_rx_mbit_s]} Mbps (${net_rx_pcent}%)\n"
-	tooltip+="<b>     net_tx</b>: ${values[net_tx_mbit_s]}/${values_max[net_tx_mbit_s]} Mbps (${net_tx_pcent}%)\n\n"
+	values+=([net_rx_mbit_s_pcent]="$net_rx_mbit_s_pcent" [net_tx_mbit_s_pcent]="$net_tx_mbit_s_pcent")
 }
 
 net_skt() {
@@ -217,13 +246,6 @@ net_skt() {
 
 	values+=([net_skt_tcp]=$((net_skt[0]+net_skt[1])))
 	values+=([net_skt_udp]=$((net_skt[2]+net_skt[3])))
-
-	net_skt_tcp_pcent=$(get_pcent "${values[net_skt_tcp]}" "${values_max[net_skt_tcp]}")
-	net_skt_udp_pcent=$(get_pcent "${values[net_skt_udp]}" "${values_max[net_skt_udp]}")
-	values_pcent+=("$net_skt_tcp_pcent" "$net_skt_udp_pcent")
-
-	tooltip+="<b>    net_tcp</b>: ${values[net_skt_tcp]}/${values_max[net_skt_tcp]} (${net_skt_tcp_pcent}%)\n"
-	tooltip+="<b>    net_udp</b>: ${values[net_skt_udp]}/${values_max[net_skt_udp]} (${net_skt_udp_pcent}%)\n\n"
 }
 
 disk_rw() {
@@ -237,29 +259,25 @@ disk_rw() {
 			disk_r_mbyte_s = (disk_r_mb>disk_r_mb_old) ? (disk_r_mb-disk_r_mb_old)/time_delta : 0
 			disk_w_mbyte_s = (disk_w_mb>disk_w_mb_old) ? (disk_w_mb-disk_w_mb_old)/time_delta : 0
 
-			disk_r_pcent = (disk_r_mbyte_s_max>0) ? disk_r_mbyte_s/disk_r_mbyte_s_max*100 : 0
-			disk_w_pcent = (disk_w_mbyte_s_max>0) ? disk_w_mbyte_s/disk_w_mbyte_s_max*100 : 0
+			disk_r_mbyte_s_pcent = (disk_r_mbyte_s_max>0) ? disk_r_mbyte_s/disk_r_mbyte_s_max*100 : 0
+			disk_w_mbyte_s_pcent = (disk_w_mbyte_s_max>0) ? disk_w_mbyte_s/disk_w_mbyte_s_max*100 : 0
 
-			printf "%f %.1f %d ", disk_r_mb, disk_r_mbyte_s, disk_r_pcent
-			printf "%f %.1f %d ", disk_w_mb, disk_w_mbyte_s, disk_w_pcent
+			printf "%f %.1f %d ", disk_r_mb, disk_r_mbyte_s, disk_r_mbyte_s_pcent
+			printf "%f %.1f %d ", disk_w_mb, disk_w_mbyte_s, disk_w_mbyte_s_pcent
 		}
 	EOF
 	
-	read -r disk_r_mb disk_r_mbyte_s disk_r_pcent disk_w_mb disk_w_mbyte_s disk_w_pcent < <(awk \
+	read -r disk_r_mb disk_r_mbyte_s disk_r_mbyte_s_pcent disk_w_mb disk_w_mbyte_s disk_w_mbyte_s_pcent < <(awk \
 		-v disk_r_mb_old="${values_old[disk_r_mb]}" \
 		-v disk_w_mb_old="${values_old[disk_w_mb]}" \
 		-v disk_r_mbyte_s_max="${values_max[disk_r_mbyte_s]}" \
 		-v disk_w_mbyte_s_max="${values_max[disk_w_mbyte_s]}" \
 		-v date="$date" \
-		-v date_old="${values_old[date]}" "$awk_disk_rw" "/sys/block/$disk_device/stat")
+		-v date_old="${values_old[date]}" "$awk_disk_rw" "/sys/block/$1/stat")
 
 		values+=([disk_r_mb]="$disk_r_mb" [disk_w_mb]="$disk_w_mb")
 		values+=([disk_r_mbyte_s]="$disk_r_mbyte_s" [disk_w_mbyte_s]="$disk_w_mbyte_s")
-
-		values_pcent+=("$disk_r_pcent" "$disk_w_pcent")
-
-		tooltip+="<b>     disk_r</b>: ${values[disk_r_mbyte_s]}/${values_max[disk_r_mbyte_s]} MBps (${disk_r_pcent}%)\n"
-		tooltip+="<b>     disk_w</b>: ${values[disk_w_mbyte_s]}/${values_max[disk_w_mbyte_s]} MBps (${disk_w_pcent}%)"
+		values+=([disk_r_mbyte_s_pcent]="$disk_r_mbyte_s_pcent" [disk_w_mbyte_s_pcent]="$disk_w_mbyte_s_pcent")
 }
 
 power() {
@@ -272,14 +290,6 @@ power() {
 	# https://github.com/djselbeck/rapl-read-ryzen
 	values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
 	values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
-
-
-	cpu_w_pcent=$(get_pcent "${values[cpu_w]%%.*}" "${values_max[cpu_w]%%.*}")
-	gpu_w_pcent=$(get_pcent "${values[gpu_w]%%.*}" "${values_max[gpu_w]%%.*}")
-	values_pcent+=("$cpu_w_pcent" "$gpu_w_pcent")
-
-	tooltip+="\n\n<b>  cpu_power</b>: ${values[cpu_w]}/${values_max[cpu_w]} W (${cpu_w_pcent}%)\n"
-	tooltip+="<b>  gpu_power</b>: ${values[gpu_w]}/${values_max[gpu_w]} W (${gpu_w_pcent}%)\n\n"
 }
 
 temp() {
@@ -290,19 +300,10 @@ temp() {
 		"/sys/class/hwmon/hwmon0/temp1_input")
 
 	values+=([cpu_temp]="$cpu_temp" [gpu_temp]="$gpu_temp" [ssd_temp]="$ssd_temp")
-
-	cpu_temp_pcent=$(get_pcent "${values[cpu_temp]%%.*}" "${values_max[cpu_temp]%%.*}")
-	gpu_temp_pcent=$(get_pcent "${values[gpu_temp]%%.*}" "${values_max[gpu_temp]%%.*}")
-	ssd_temp_pcent=$(get_pcent "${values[ssd_temp]%%.*}" "${values_max[ssd_temp]%%.*}")
-	values_pcent+=("$cpu_temp_pcent" "$gpu_temp_pcent" "$ssd_temp_pcent")
-
-	tooltip+="<b>   cpu_temp</b>: ${values[cpu_temp]}/${values_max[cpu_temp]} C (${cpu_temp_pcent}%)\n"
-	tooltip+="<b>   gpu_temp</b>: ${values[gpu_temp]}/${values_max[gpu_temp]} C (${gpu_temp_pcent}%)\n"
-	tooltip+="<b>   ssd_temp</b>: ${values[ssd_temp]}/${values_max[ssd_temp]} C (${ssd_temp_pcent}%)"
 }
 
 data_load() {
-	source "$values_file" || declare -Ag values_old
+	source "$1" || declare -Ag values_old
 
 	for i in "${!values_max[@]}"; do
 		if [[ "${values_max[$i]}" == "auto" ]]; then
@@ -324,7 +325,7 @@ data_save() {
 
 	values+=([date]="${date}")
 
-	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > "$values_file"
+	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > "$1"
 }
 
 get_pcent() {
@@ -334,11 +335,6 @@ get_pcent() {
 		echo $((100*$1/$2))
 		#awk -v value="$1" -v total="$2" 'BEGIN {printf "%d", value/total*100}'
 	fi
-}
-
-get_rate() {
-	awk -v new="$1" -v old="$2" -v date="$3" -v date_old="$4" 'BEGIN {
-		if (date>date_old) {printf "%.1f", (new-old)/((date-date_old)/1000)} else {print 0}}'
 }
 
 draw_elements() {
