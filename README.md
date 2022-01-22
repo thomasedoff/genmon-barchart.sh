@@ -10,13 +10,14 @@ The script can be an alternative/addition to [CPUGraph](https://docs.xfce.org/pa
 
 To reduce overhead, the script retrieves data from procfs, sysfs, etc whenever favorable.
 
-## Functions
-| Function   | Description |
+## Bars
+| Bar   | Description |
 -------------|-------------|
 | num_warn<sup>1</sup>  | Log entries with importance warn or higher
 | num_users  | Users logged on 
 | num_procs  | Running processes
-| cpu_load   | CPU frequency and average load
+| cpu_freq   | Average CPU frequency
+| cpu_load   | Average CPU load
 | mem_usage  | Memory usage
 | disk_usage | Disk usage
 | net_rxtx   | Network IO (receive/transmit)
@@ -29,21 +30,18 @@ To reduce overhead, the script retrieves data from procfs, sysfs, etc whenever f
 <sup>2</sup> System-specific and likely to need tweaking
 
 ## How to use
-1. Edit the ``General settings``, ``Functions``, ``Max values`` and ``SVG dimensions`` sections in the script.
+1. Edit the ``General settings``, ``Bars``, ``Max values`` and ``SVG dimensions`` sections in the script.
 2. Add a General Monitor (xfce4-genmon-plugin) to a panel and set the script as the command.
 3. Configure the label and period to your liking.
 4. Optionally, pass an argument with the path to a file with settings to override the settings within the script.
 
 ## Considerations
-Most functions should be portable, but ``get_power`` and ``get_temp`` are system-specific. Please consider these functions **examples** rather than something that will work for you out of the box.
+Most functions should be portable, but ``power`` and ``temp`` are system-specific. Please consider these functions **examples** rather than something that will work for you out of the box.
 
 As noted, some functions require Superuser privileges. One way to to achieve this is to configure ``/etc/sudoers`` as such:
 ```
 NAME_OF_USER ALL=NOPASSWD: /usr/local/bin/genmon-barchart.sh
 ```
-## Adding data to the chart
-The process of adding data to the chart is described in the ``get_num_warn`` function.
-
 ## Customization
 - Depending on how many bars you include in the chart, you may have to adjust ``svg_width`` to fit all bars without unnecessary margins.
 - If you are unsure of what maximum values to set, set them to ``auto`` and stress your system in order to record some approximate values.
