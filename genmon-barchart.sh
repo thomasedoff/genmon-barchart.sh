@@ -63,7 +63,7 @@ declare -A values_max=(
 )
 
 # SVG dimensions
-svg_width=40
+svg_width=37
 svg_height=30
 svg_margin=1
 svg_include_blanks="false"
@@ -72,6 +72,7 @@ main() {
 	date=$(date '+%s%3N')
 
 	declare -A values=()
+	declare -a values_titles=()
 	declare -a values_pcent=()
 
 	if [[ -n "$1" && -f "$1" ]]; then
@@ -121,35 +122,41 @@ main() {
 			;;
 		esac
 		
-		# Add blanks to tooltip and chart
 		if [[ "$i" == "<blank>" ]]; then
-			tmp="\n"
-			[[ $svg_include_blanks == "true" ]] && values_pcent+=(0)
+			printf -v tmp "%s" "\n"
+			[[ "$svg_include_blanks" == "true" ]] && values_pcent+=(0)
+			tooltip+=$tmp
+			continue
+		fi
+		
+		if [[ -n "${values[$i]}" && -n "${values_max[$i]}" && -v "values[${i}_pcent]" ]]; then
+			pcent="${values[${i}_pcent]}"
+		elif [[ -n "${values[$i]}" && "${values_max[$i]}" -eq 0 ]]; then
+			pcent=0
+		elif [[ -n "${values[$i]}" && -n "${values_max[$i]}" ]]; then
+			pcent=$((100*${values[$i]%%.*}/${values_max[$i]%%.*}))
+			#pcent=$(awk -v value="${values[$i]}" -v total="${values_max[$i]}" 'BEGIN {printf "%d", value/total*100}')
 		else
-			# Some functions provide percentages, no need to calculate them again
-			if [[ -v "values[${i}_pcent]" ]]; then
-				pcent="${values[${i}_pcent]}"
-			else
-				pcent=$(get_pcent "${values[$i]%%.*}" "${values_max[$i]%%.*}")
-			fi
-			
-			printf -v tmp "<b>%14s</b>: %s/%s %s(%s%%)\n" "$i" "${values[$i]}" "${values_max[$i]}" "$unit" "$pcent"
-			values_pcent+=("$pcent")	
+			printf -v tmp "<b>%14s</b>: %s\n" "$i" "N/A"
+			tooltip+=$tmp
+			continue
 		fi
 
+		values_titles+=("$i")
+		values_pcent+=("$pcent")
+		
+		printf -v tmp "<b>%14s</b>: %g/%g %s(%d%%)\n" "$i" "${values[$i]}" "${values_max[$i]}" "$unit" "$pcent"
 		tooltip+=$tmp
 	done
 
 	create_svg
 	data_save "$values_file"
-	#write_history
 
 	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>$tooltip</tt></tool>"
 }
 
 num_warn() {
 	if [[ "$EUID" -ne 0 ]]; then
-		tooltip+="<b>   num_warn</b>: N/A\n\n"
 		return
 	fi
 
@@ -201,7 +208,6 @@ disk_usage() {
 	values+=([disk_usage_gb]="$disk_usage_gb" [disk_usage_gb_pcent]="$disk_usage_gb_pcent")
 	values_max+=([disk_usage_gb]="$disk_size_gb")
 }
-
 
 net_rxtx() {
 	read -r -d '' awk_net_rxtx <<- 'EOF'
@@ -282,8 +288,6 @@ disk_rw() {
 
 power() {
 	if [[ "$EUID" -ne 0 ]]; then
-		tooltip+="<b>  cpu_power</b>: N/A\n"
-		tooltip+="<b>  gpu_power</b>: N/A\n"
 		return
 	fi
 
@@ -328,15 +332,6 @@ data_save() {
 	declare -Ap values | sed 's/ -A values/ -Ag values_old/' > "$1"
 }
 
-get_pcent() {
-	if [[ "$1" == 0 || "$2" == 0 ]]; then
-		echo 0
-	else
-		echo $((100*$1/$2))
-		#awk -v value="$1" -v total="$2" 'BEGIN {printf "%d", value/total*100}'
-	fi
-}
-
 draw_elements() {
 	local svg_width=$(((svg_width-svg_margin)/${#values_pcent[@]}-svg_margin))
 
@@ -344,7 +339,7 @@ draw_elements() {
 		local x=$(((svg_width+svg_margin)*i))
 		local svg_height=$((((${values_pcent[$i]%.*}+5)/10)*10))
 
-		bars+="<rect class='bar bar--$i' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
+		bars+="<rect class='bar bar--${values_titles[$i]}' width='$svg_width' height='${svg_height}%' x='$x' y='0' />"
 	done
 
 	for i in {0..100..10}; do
@@ -388,11 +383,6 @@ create_svg() {
 		</svg>
 	</svg>
 	SVG
-}
-
-write_history() {
-	values_joined=$(printf ",%s" "${values[@]}")
-	echo "${date::-3}${values_joined}" >> "/tmp/genmon-barchart-history.txt"
 }
 
 main "$@"
