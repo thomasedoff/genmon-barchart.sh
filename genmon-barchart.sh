@@ -99,7 +99,7 @@ main() {
 				num_procs
 			;;
 			"cpu_freq" | "cpu_load")
-				# Since cpu_load return values for both bars, only execute the function once
+				# Since cpu_load() return values for both bars, only execute the function once
 				[[ -v "values[$i]" ]] || cpu_load
 			;;
 			"mem_usage_gb")
@@ -387,7 +387,7 @@ create_svg() {
 			/*
 				The attributes above will loop rainbow colors forever
 				To set specific colors for a bar, its title can be referenced:
-				.bar--num_users { fill: #fff !important; } */
+				.bar--num_users { fill: #fff !important; }
 			*/
 		</style>
 	
