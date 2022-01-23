@@ -41,7 +41,7 @@ declare -a values_order=(
 )
 
 
-# Max values
+# Max values for bars whose function does not determine a maximum
 # If set to auto, the percentages will be based on the highest value recorded.
 declare -A values_max=(
 	[num_warn]="auto"
@@ -69,22 +69,24 @@ svg_margin=1
 svg_include_blanks="false"
 
 main() {
-	date=$(date '+%s%3N')
-
 	declare -A values=()
 	declare -a values_titles=()
 	declare -a values_pcent=()
+	
+	# Current date in milliseconds
+	date=$(date '+%s%3N')
 
-	if [[ -n "$1" && -f "$1" ]]; then
-		source "$1"
-	fi
+	# Load settings from external file
+	[[ -n "$1" && -f "$1" ]] && source "$1"
 
+	# Load previous values in order to set max and calculate rates
 	data_load "$values_file"
 
-	# Execute necessary functions based on requested bars
+	# Execute necessary functions to get data for requested bars
 	for i in "${values_order[@]}"; do
 		local pcent="0"
 		local unit=""
+		local tmp=""
 		
 		case $i in
 			"num_warn") 
@@ -97,6 +99,7 @@ main() {
 				num_procs
 			;;
 			"cpu_freq" | "cpu_load")
+				# Since cpu_load return values for both bars, only execute the function once
 				[[ -v "values[$i]" ]] || cpu_load
 			;;
 			"mem_usage_gb")
@@ -122,6 +125,7 @@ main() {
 			;;
 		esac
 		
+		# Add a newline to the tooltip and, optionally, a gap to the chart
 		if [[ "$i" == "<blank>" ]]; then
 			printf -v tmp "%s" "\n"
 			[[ "$svg_include_blanks" == "true" ]] && values_pcent+=(0)
@@ -130,36 +134,45 @@ main() {
 		fi
 		
 		if [[ -n "${values[$i]}" && -n "${values_max[$i]}" && -v "values[${i}_pcent]" ]]; then
+			# Function returned a percentage, so simply use that value
 			pcent="${values[${i}_pcent]}"
 		elif [[ -n "${values[$i]}" && "${values_max[$i]}" -eq 0 ]]; then
+			# Function returned a zero max value, so avoid div/0
 			pcent=0
 		elif [[ -n "${values[$i]}" && -n "${values_max[$i]}" ]]; then
+			# Function did not return a percentage, so we need to calculate it
 			pcent=$((100*${values[$i]%%.*}/${values_max[$i]%%.*}))
+			
+			# If more precision is required, use awk instead 
 			#pcent=$(awk -v value="${values[$i]}" -v total="${values_max[$i]}" 'BEGIN {printf "%d", value/total*100}')
 		else
+			# Function did not return the necessary values
 			printf -v tmp "<b>%14s</b>: %s\n" "$i" "N/A"
 			tooltip+=$tmp
 			continue
 		fi
 
+		# Prepare values needed by create_svg()
 		values_titles+=("$i")
 		values_pcent+=("$pcent")
 		
+		# Create tooltip
 		printf -v tmp "<b>%14s</b>: %g/%g %s(%d%%)\n" "$i" "${values[$i]}" "${values_max[$i]}" "$unit" "$pcent"
 		tooltip+=$tmp
 	done
 
+	# Create chart with bars based on percentages
 	create_svg
+	
+	# Save data with potential new max values
 	data_save "$values_file"
 
+	# Output for GenMon
 	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>$tooltip</tt></tool>"
 }
 
 num_warn() {
-	if [[ "$EUID" -ne 0 ]]; then
-		return
-	fi
-
+	[[ "$EUID" -ne 0 ]] && return
 	values+=([num_warn]=$(journalctl --priority=warning --since -5min | wc -l))
 }
 
@@ -190,7 +203,8 @@ cpu_load() {
 		-v cpu_load="$(cut -d' ' -f1 < /proc/loadavg)" \
 		-v cpu_load_max="${values_max[cpu_load]}" "$awk_cpu_load" /proc/cpuinfo)
 
-	values+=([cpu_freq]="$cpu_freq" [cpu_freq_pcent]="$cpu_freq_pcent" [cpu_load]="$cpu_load" [cpu_load_pcent]="$cpu_load_pcent")
+	values+=([cpu_freq]="$cpu_freq" [cpu_freq_pcent]="$cpu_freq_pcent")
+	values+=([cpu_load]="$cpu_load" [cpu_load_pcent]="$cpu_load_pcent")
 }
 
 mem_usage() {
@@ -287,10 +301,7 @@ disk_rw() {
 }
 
 power() {
-	if [[ "$EUID" -ne 0 ]]; then
-		return
-	fi
-
+	[[ "$EUID" -ne 0 ]] && return
 	# https://github.com/djselbeck/rapl-read-ryzen
 	values+=([cpu_w]=$(/usr/bin/rapl-read-ryzen | awk '/Core sum:/{gsub("W", ""); printf "%.1f", $3}'))
 	values+=([gpu_w]=$(awk '/(average GPU)/{printf "%.1f", $0}' /sys/kernel/debug/dri/0/amdgpu_pm_info))
@@ -358,6 +369,7 @@ create_svg() {
 
 		<style>
 			.container { fill: #000; }
+			.line { stroke: #000; stroke-width: $svg_margin }
 			.bar:nth-of-type(14n+1) { fill: #A93226; }
 			.bar:nth-of-type(14n+2) { fill: #CB4335; }
 			.bar:nth-of-type(14n+3) { fill: #884EA0; }
@@ -372,7 +384,11 @@ create_svg() {
 			.bar:nth-of-type(14n+12) { fill: #D68910; }
 			.bar:nth-of-type(14n+13) { fill: #CA6F1E; }
 			.bar:nth-of-type(14n+14) { fill: #BA4A00; }
-			.line { stroke: #000; stroke-width: $svg_margin }
+			/*
+				The attributes above will loop rainbow colors forever
+				To set specific colors for a bar, its title can be referenced:
+				.bar--num_users { fill: #fff !important; } */
+			*/
 		</style>
 	
 		<rect class="container" width="$svg_width" height="$svg_height" />
