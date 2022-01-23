@@ -167,8 +167,8 @@ main() {
 	# Save data with potential new max values
 	data_save "$values_file"
 
-	# Output for GenMon
-	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>$tooltip</tt></tool>"
+	# Output for GenMon with trailing newline removed from tooltip
+	echo -e "<img>/tmp/genmon-barchart.svg</img><tool><tt>${tooltip::-1}</tt></tool>"
 }
 
 num_warn() {
